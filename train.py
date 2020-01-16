@@ -366,6 +366,9 @@ def main(unused_argv):
 
     # Build the optimizer based on the device specification.
     with tf.device(config.optimizer_device()):
+      
+      tf.train.Saver(max_to_keep=0)
+
       learning_rate = train_utils.get_model_learning_rate(
           FLAGS.learning_policy,
           FLAGS.base_learning_rate,
@@ -462,6 +465,7 @@ def main(unused_argv):
           startup_delay_steps=startup_delay_steps,
           init_fn=init_fn,
           summary_op=summary_op,
+          saver=tf.train.Saver(max_to_keep=0),
           save_summaries_secs=FLAGS.save_summaries_secs,
           save_interval_secs=FLAGS.save_interval_secs)
 
