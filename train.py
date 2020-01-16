@@ -184,6 +184,24 @@ flags.DEFINE_float('max_scale_factor', 2.,
 flags.DEFINE_float('scale_factor_step_size', 0.25,
                    'Scale factor step size for data augmentation.')
 
+flags.DEFINE_float('motion_blur_size', 0,
+                   'Add motion blur for data augmentation.')
+
+flags.DEFINE_float('motion_blur_direction_limit', 30,
+                   'Add motion blur for data augmentation.')
+
+flags.DEFINE_float('rotation_min_limit', 0,
+                   'Min limit for rotation for data augmentation.')
+
+flags.DEFINE_float('rotation_max_limit', 0,
+                   'Max limit for rotation for data augmentation.')
+
+flags.DEFINE_float('brightness_min_limit', 0,
+                   'Min limit for brightness for data augmentation.')
+
+flags.DEFINE_float('brightness_max_limit', 0,
+                   'Max limit for brightness for data augmentation.')
+                   
 # For `xception_65`, use atrous_rates = [12, 24, 36] if output_stride = 8, or
 # rates = [6, 12, 18] if output_stride = 16. For `mobilenet_v2`, use None. Note
 # one could use different atrous_rates/output_stride during training/evaluation.
@@ -311,7 +329,13 @@ def main(unused_argv):
           num_readers=4,
           is_training=True,
           should_shuffle=True,
-          should_repeat=True)
+          should_repeat=True,
+          motion_blur_size=FLAGS.motion_blur_size,
+          motion_blur_direction_limit=FLAGS.motion_blur_direction_limit,
+          brightness_min_limit = FLAGS.brightness_min_limit,
+          brightness_max_limit = FLAGS.brightness_max_limit,
+          rotation_min_limit=FLAGS.rotation_min_limit,
+          rotation_max_limit=FLAGS.rotation_max_limit)
 
     # Create the global step on the device storing the variables.
     with tf.device(config.variables_device()):

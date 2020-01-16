@@ -19,6 +19,9 @@ import tensorflow as tf
 from deeplab.core import feature_extractor
 from deeplab.core import preprocess_utils
 
+import numpy as np
+from random import random
+from math import radians
 
 # The probability of flipping the images and labels
 # left-right during training
@@ -37,7 +40,13 @@ def preprocess_image_and_label(image,
                                scale_factor_step_size=0,
                                ignore_label=255,
                                is_training=True,
-                               model_variant=None):
+                               model_variant=None,
+                               motion_blur_size=0,
+                               motion_blur_direction_limit=30,
+                               rotation_min_limit=0,
+                               rotation_max_limit=0,
+                               brightness_min_limit=0,
+                               brightness_max_limit=0):
   """Preprocesses the image and label.
 
   Args:
@@ -76,12 +85,24 @@ def preprocess_image_and_label(image,
 
   # Keep reference to original image.
   original_image = image
-
   processed_image = tf.cast(image, tf.float32)
+  
+  # CUSTOM AUGMENTATION 2: Rotation in degrees
+  if rotation_min_limit != 0:
+    rotation_deg = (rotation_max_limit - rotation_min_limit) * random() + rotation_min_limit
+    processed_image = tf.contrib.image.rotate(processed_image, radians(rotation_deg))
 
+    #in-built rotate function zeroes all empty spaces, add one to all classes so class 0 is not affected
+    if label is not None:
+      label = tf.math.add(label, tf.ones_like(label))
+      label = tf.contrib.image.rotate(label, radians(rotation_deg))
+      
+      #ensure label is dtype=uint8, for 0-1=255, since 255 is ignore label
+      label = tf.math.subtract(label, tf.ones_like(label))
+  
   if label is not None:
     label = tf.cast(label, tf.int32)
-
+  
   # Resize image and label to the desired range.
   if min_resize_value or max_resize_value:
     [processed_image, label] = (
@@ -94,7 +115,17 @@ def preprocess_image_and_label(image,
             align_corners=True))
     # The `original_image` becomes the resized image.
     original_image = tf.identity(processed_image)
-
+  
+  # CUSTOM AUGMENTATION 1: Add motion blur, kernel wrt height, directoin in degrees
+  if motion_blur_size != 0:
+      processed_image = add_blur(processed_image, crop_height, motion_blur_size, motion_blur_direction_limit)
+      processed_image.set_shape([None, None, 3])
+  
+  # CUSTOM AUGMENTATION 3: Add brightness, in multiple of original brightness
+  if brightness_min_limit != 0:
+      brightnessLevel = (brightness_max_limit - brightness_min_limit) * random() + brightness_min_limit
+      processed_image = tf.image.adjust_brightness(processed_image, brightnessLevel)
+  
   # Data augmentation by randomly scaling the inputs.
   if is_training:
     scale = preprocess_utils.get_random_scale(
@@ -102,7 +133,7 @@ def preprocess_image_and_label(image,
     processed_image, label = preprocess_utils.randomly_scale_image_and_label(
         processed_image, label, scale)
     processed_image.set_shape([None, None, 3])
-
+  
   # Pad image and label to have dimensions >= [crop_height, crop_width]
   image_shape = tf.shape(processed_image)
   image_height = image_shape[0]
@@ -137,3 +168,85 @@ def preprocess_image_and_label(image,
         [processed_image, label], _PROB_OF_FLIP, dim=1)
 
   return original_image, processed_image, label
+
+
+def createKernel(direction, size):
+    """ create motion blur kernel
+
+    Args:
+        direction:  float, degrees specifying direction of blur, counter-clockwise positive
+        size:       int, size of kernel specifying extent of blur
+    """
+
+    assert(size%2 == 1), 'size needs to be positive odd integer'
+    
+    k = np.zeros( (size, size), dtype=np.float32 )
+    
+    unit_vector = np.tan( direction*np.pi / 180 )
+    
+    centre = int(size/2)
+    rad = centre + 1
+
+    if abs(unit_vector) < 1:
+        for xshift in range(rad):
+            yshift = np.round(unit_vector * xshift)
+            
+            k[int(centre - yshift), centre + xshift] = 1
+            k[int(centre + yshift), centre - xshift] = 1
+    else:
+        unit_vector = 1/unit_vector
+        for yshift in range(rad):
+            xshift = np.round(unit_vector * yshift)
+
+            k[centre - yshift, int(centre + xshift)] = 1
+            k[centre + yshift, int(centre - xshift)] = 1
+    
+    k /= size
+
+    return(k)
+
+
+def add_blur(image, imageHeight, kernelSizeToHeight, direction):
+  """ Add motion blur to image tensor 
+  
+  Args:
+    image:              tensor, image tensor of shape (?, ?, 3)
+    imageHeight:        int, height of image
+    kernelSizeToHeight: float, size of kernel wrt image height
+    direction:          float, limits of rotation in degrees (-dir, dir)
+  """
+
+  #create zero-kernel of size 0.1 of image height
+  kernelSize = int( kernelSizeToHeight*imageHeight * random() )
+  if kernelSize == 0:
+    kernelSize = 1
+  
+  if kernelSize %2 == 0:
+    kernelSize -= 1
+  #k = tf.Variable( tf.zeros([kernelSize, kernelSize], tf.float32) )
+
+  d = 2*direction*random() - direction  #[-direction: direction) degrees
+  k = createKernel(d, kernelSize)
+  k = np.expand_dims(k, axis=2)
+  tfkernel = tf.expand_dims(k, 3)
+  
+  r, g, b = tf.split(image, [1,1,1], 2)
+  
+  with tf.device('/gpu:0'):
+    r = tf.nn.conv2d(
+      tf.expand_dims(r,0), 
+      tfkernel,
+      strides=[1, 1, 1, 1], padding="SAME")
+    g = tf.nn.conv2d(
+      tf.expand_dims(g,0), 
+      tfkernel,
+      strides=[1, 1, 1, 1], padding="SAME")
+    b = tf.nn.conv2d(
+      tf.expand_dims(b,0), 
+      tfkernel,
+      strides=[1, 1, 1, 1], padding="SAME")
+  
+  image = tf.concat([r,g,b], 3)
+  image = tf.squeeze(image)
+  
+  return(image)

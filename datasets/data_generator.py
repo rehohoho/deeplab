@@ -172,7 +172,13 @@ class Dataset(object):
                num_readers=1,
                is_training=False,
                should_shuffle=False,
-               should_repeat=False):
+               should_repeat=False,
+               motion_blur_size=0,
+               motion_blur_direction_limit=30,
+               rotation_min_limit=0,
+               rotation_max_limit=0,
+               brightness_min_limit=0,
+               brightness_max_limit=0):
     """Initializes the dataset.
 
     Args:
@@ -229,7 +235,12 @@ class Dataset(object):
     self.is_training = is_training
     self.should_shuffle = should_shuffle
     self.should_repeat = should_repeat
-
+    self.motion_blur_size = motion_blur_size
+    self.motion_blur_direction_limit = motion_blur_direction_limit
+    self.rotation_min_limit = rotation_min_limit
+    self.rotation_max_limit = rotation_max_limit
+    self.brightness_min_limit = brightness_min_limit
+    self.brightness_max_limit = brightness_max_limit
     self.num_of_classes = _DATASETS_INFORMATION[self.dataset_name].num_classes
     self.ignore_label = _DATASETS_INFORMATION[self.dataset_name].ignore_label
 
@@ -336,8 +347,14 @@ class Dataset(object):
         scale_factor_step_size=self.scale_factor_step_size,
         ignore_label=self.ignore_label,
         is_training=self.is_training,
-        model_variant=self.model_variant)
-
+        model_variant=self.model_variant,
+        motion_blur_size=self.motion_blur_size,
+        motion_blur_direction_limit=self.motion_blur_direction_limit,
+        rotation_min_limit=self.rotation_min_limit,
+        rotation_max_limit=self.rotation_max_limit,
+        brightness_min_limit=self.brightness_min_limit,
+        brightness_max_limit=self.brightness_max_limit)
+    
     sample[common.IMAGE] = image
 
     if not self.is_training:
