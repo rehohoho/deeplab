@@ -99,10 +99,50 @@ _ADE20K_INFORMATION = DatasetDescriptor(
     ignore_label=0,
 )
 
+_BDD_INFORMATION = DatasetDescriptor(
+    splits_to_sizes={
+        'train': 7000,  # num of samples in images/training
+        'val': 1000,  # num of samples in images/validation
+    },
+    num_classes=19,
+    ignore_label=255,
+)
+
+_MAPILLARY_INFORMATION = DatasetDescriptor(
+    splits_to_sizes={
+        'train': 18000,  # num of samples in images/training
+        'val': 2000,  # num of samples in images/validation
+    },
+    num_classes=64,
+    ignore_label=65,
+)
+
+_BDD_CITYSCAPES_INFORMATION = DatasetDescriptor(
+    splits_to_sizes={
+        'train': 9975,  # num of samples in images/training
+        'val': 1500,  # num of samples in images/validation
+    },
+    num_classes=19,
+    ignore_label=255,
+)
+
+_BDD_CITY_MAPIL_INFORMATION = DatasetDescriptor(
+    splits_to_sizes={
+        'train': 27975,  # num of samples in images/training
+        'val': 3500,  # num of samples in images/validation
+    },
+    num_classes=19,
+    ignore_label=255,
+)
+
 _DATASETS_INFORMATION = {
     'cityscapes': _CITYSCAPES_INFORMATION,
     'pascal_voc_seg': _PASCAL_VOC_SEG_INFORMATION,
     'ade20k': _ADE20K_INFORMATION,
+    'bdd': _BDD_INFORMATION,
+    'mapillary': _MAPILLARY_INFORMATION,
+    'bdd+cityscapes': _BDD_CITYSCAPES_INFORMATION,
+    'bdd+cityscapes+mapillary': _BDD_CITY_MAPIL_INFORMATION,
 }
 
 # Default file pattern of TFRecord of TensorFlow Example.
