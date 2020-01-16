@@ -226,11 +226,14 @@ def main(unused_argv):
         eval_ops=list(metrics_to_updates.values()),
         max_number_of_evaluations=num_eval_iters,
         hooks=hooks,
-        eval_interval_secs=FLAGS.eval_interval_secs)
+        config=session_config,
+        eval_interval_secs=FLAGS.eval_interval_secs,
+        timeout=6)
 
 
 if __name__ == '__main__':
   flags.mark_flag_as_required('checkpoint_dir')
   flags.mark_flag_as_required('eval_logdir')
   flags.mark_flag_as_required('dataset_dir')
+
   tf.app.run()
