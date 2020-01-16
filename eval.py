@@ -204,6 +204,10 @@ def main(unused_argv):
     if FLAGS.quantize_delay_step >= 0:
       contrib_quantize.create_eval_graph()
 
+    #avoid cudnn load problem
+    session_config = tf.ConfigProto()
+    session_config.gpu_options.allow_growth = True
+    
     contrib_tfprof.model_analyzer.print_model_analysis(
         tf.get_default_graph(),
         tfprof_options=contrib_tfprof.model_analyzer

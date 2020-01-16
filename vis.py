@@ -280,6 +280,10 @@ def main(unused_argv):
     num_iteration = 0
     max_num_iteration = FLAGS.max_number_of_iterations
 
+    #avoid cudnn load problem
+    session_config = tf.ConfigProto()
+    session_config.gpu_options.allow_growth = True
+
     checkpoints_iterator = contrib_training.checkpoints_iterator(
         FLAGS.checkpoint_dir, min_interval_secs=FLAGS.eval_interval_secs)
     for checkpoint_path in checkpoints_iterator:

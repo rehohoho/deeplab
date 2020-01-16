@@ -279,7 +279,7 @@ def main(unused_argv):
       replica_id=FLAGS.task,
       num_replicas=FLAGS.num_replicas,
       num_ps_tasks=FLAGS.num_ps_tasks)
-
+  
   # Split the batch across GPUs.
   assert FLAGS.train_batch_size % config.num_clones == 0, (
       'Training batch size not divisble by number of clones (GPUs).')
@@ -426,6 +426,10 @@ def main(unused_argv):
     # Soft placement allows placing on CPU ops without GPU implementation.
     session_config = tf.ConfigProto(
         allow_soft_placement=True, log_device_placement=False)
+    
+    #avoid cudnn load problem
+    session_config.gpu_options.allow_growth = True
+    session_config.gpu_options.per_process_gpu_memory_fraction = 0.8
 
     # Start the training.
     profile_dir = FLAGS.profile_logdir

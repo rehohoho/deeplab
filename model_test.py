@@ -18,6 +18,10 @@
 
 import tensorflow as tf
 
+import sys
+from os.path import dirname, abspath, join
+sys.path.append(dirname(dirname(abspath(__file__))))
+sys.path.append(join(dirname(dirname(abspath(__file__))), 'slim'))
 from deeplab import common
 from deeplab import model
 
