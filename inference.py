@@ -10,7 +10,7 @@ from PIL import Image
 import re
 
 import tensorflow as tf
-from utils.post_utils import *
+from post.post_utils import *
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_softmax
 from skimage.segmentation import slic, mark_boundaries
