@@ -1,0 +1,4 @@
+datasets/bdd+cityscapes+mapillary/
+
+*.pyc
+*.ipynb
