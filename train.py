@@ -25,6 +25,10 @@ import six
 import tensorflow as tf
 from tensorflow.contrib import quantize as contrib_quantize
 from tensorflow.contrib import tfprof as contrib_tfprof
+
+#from os import environ
+#environ["CUDA_VISIBLE_DEVICES"] = "-1" #disables GPU
+
 from deeplab import common
 from deeplab import model
 from deeplab.datasets import data_generator

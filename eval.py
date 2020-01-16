@@ -25,6 +25,11 @@ from tensorflow.contrib import metrics as contrib_metrics
 from tensorflow.contrib import quantize as contrib_quantize
 from tensorflow.contrib import tfprof as contrib_tfprof
 from tensorflow.contrib import training as contrib_training
+
+from os.path import dirname, abspath, join
+#from os import environ
+#environ["CUDA_VISIBLE_DEVICES"] = "-1" #disables GPU
+
 from deeplab import common
 from deeplab import model
 from deeplab.datasets import data_generator

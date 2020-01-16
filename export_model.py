@@ -18,6 +18,8 @@
 import os
 import tensorflow as tf
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1" #disables GPU
+
 from tensorflow.contrib import quantize as contrib_quantize
 from tensorflow.python.tools import freeze_graph
 from deeplab import common
