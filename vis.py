@@ -136,7 +136,7 @@ def _convert_train_id_to_eval_id(prediction, train_id_to_eval_id):
   return converted_prediction
 
 
-def _process_batch(sess, original_images, semantic_predictions, image_names,
+def _process_batch(sess, original_images, semantic_predictions, pred_probs, image_names,
                    image_heights, image_widths, image_id_offset, save_dir,
                    raw_save_dir, train_id_to_eval_id=None):
   """Evaluates one single batch qualitatively.
@@ -155,9 +155,10 @@ def _process_batch(sess, original_images, semantic_predictions, image_names,
   """
   (original_images,
    semantic_predictions,
+   pred_probs,
    image_names,
    image_heights,
-   image_widths) = sess.run([original_images, semantic_predictions,
+   image_widths) = sess.run([original_images, semantic_predictions, pred_probs,
                              image_names, image_heights, image_widths])
 
   num_image = semantic_predictions.shape[0]
@@ -166,8 +167,10 @@ def _process_batch(sess, original_images, semantic_predictions, image_names,
     image_width = np.squeeze(image_widths[i])
     original_image = np.squeeze(original_images[i])
     semantic_prediction = np.squeeze(semantic_predictions[i])
+    pred_prob = np.squeeze(pred_probs[i])
     crop_semantic_prediction = semantic_prediction[:image_height, :image_width]
-
+    crop_pred_prob = pred_prob[:image_height, :image_width]
+    
     # Save image.
     save_annotation.save_annotation(
         original_image, save_dir, _IMAGE_FORMAT % (image_id_offset + i),
@@ -179,6 +182,12 @@ def _process_batch(sess, original_images, semantic_predictions, image_names,
         _PREDICTION_FORMAT % (image_id_offset + i), add_colormap=True,
         colormap_type=FLAGS.colormap_type)
 
+    """
+    classes = np.shape(crop_pred_prob)[-1]
+    crop_pred_prob = np.reshape(crop_pred_prob, (image_height*image_width, classes))
+    np.savetxt("prediction%s.csv" %(image_id_offset + i), crop_pred_prob, delimiter=",")
+    """
+    
     if FLAGS.also_save_raw_predictions:
       image_filename = os.path.basename(image_names[i])
 
@@ -249,7 +258,12 @@ def main(unused_argv):
           model_options=model_options,
           eval_scales=FLAGS.eval_scales,
           add_flipped_images=FLAGS.add_flipped_images)
+    
+    print('\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n', predictions)
+
+    pred_probs = predictions['semantic_prob']
     predictions = predictions[common.OUTPUT_TYPE]
+    print('\n', pred_probs)
 
     if FLAGS.min_resize_value and FLAGS.max_resize_value:
       # Only support batch_size = 1, since we assume the dimensions of original
@@ -297,7 +311,8 @@ def main(unused_argv):
       session_creator = tf.train.ChiefSessionCreator(
           scaffold=scaffold,
           master=FLAGS.master,
-          checkpoint_filename_with_path=checkpoint_path)
+          checkpoint_filename_with_path=checkpoint_path,
+          config=session_config)
       with tf.train.MonitoredSession(
           session_creator=session_creator, hooks=None) as sess:
         batch = 0
@@ -308,6 +323,7 @@ def main(unused_argv):
           _process_batch(sess=sess,
                          original_images=samples[common.ORIGINAL_IMAGE],
                          semantic_predictions=predictions,
+                         pred_probs=pred_probs,
                          image_names=samples[common.IMAGE_NAME],
                          image_heights=samples[common.HEIGHT],
                          image_widths=samples[common.WIDTH],
