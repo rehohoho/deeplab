@@ -173,31 +173,30 @@ if __name__ == '__main__':
     
     parser.add_argument(
         '-t',
-        "--notFlagged",
+        "--unflagged_folder",
         required=True,
         help= "path to folder with images not flagged by script")
 
     parser.add_argument(
         '-f',
-        "--flagged",
+        "--flagged_folder",
         required=True,
         help= "path to folder with images flagged by script")
     
     parser.add_argument(
         '-r',
-        "--readFrom",
-        #required=True,
+        "--input_csv",
         default="",
         help= "path to csv file to read from")
     
     parser.add_argument(
         '-w',
-        "--outputTo",
+        "--output_csv",
         required=True,
         help= "path to output csv file")
     
     args = parser.parse_args()
     
-    game = game(args.notFlagged, args.flagged, args.readFrom, args.outputTo)
+    game = game(args.unflagged_folder, args.flagged_folder, args.input_csv, args.output_csv)
     #game = game('C:\\Users\\User\\Desktop\\whizzstuff\\post\\small_post', 'C:\\Users\\User\\Desktop\\whizzstuff\\post\\small_flagged', 'C:\\Users\\User\\Desktop\\whizzstuff\\post\\test.txt', 'C:\\Users\\User\\Desktop\\whizzstuff\\post\\huehuehue.txt')
     game.runPyGame()

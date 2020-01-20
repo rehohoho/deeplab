@@ -293,13 +293,13 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-o',
-        "--output_folder",
+        "--unflagged_folder",
         required=True,
         help= "path to folder for post-segmented images")
     
     parser.add_argument(
         '-t',
-        "--trash_folder",
+        "--flagged_folder",
         required=True,
         help= "path to folder for flagged post-segmented images")
     
@@ -307,20 +307,23 @@ if __name__ == '__main__':
         '-f1',
         "--road_wrongness",
         default= 0.6,
+        type= float,
         help= "threshold for wrong road (0-1)")
     
     parser.add_argument(
         '-f2',
         "--road_minimum_size",
         default= 0.5, #~200
+        type= float,
         help= "min threshold for road boundary size (pixels)")
     
     parser.add_argument(
         '-f3',
         "--road_maximum_width",
         default= 0.9,
+        type= float,
         help= "max threshold for road width wrt image width")
     
     args = parser.parse_args()
-    alter_and_flag_folder( args.input_folder, args.output_folder, args.trash_folder,
+    alter_and_flag_folder( args.input_folder, args.unflagged_folder, args.flagged_folder,
         args.road_wrongness, args.road_minimum_size, args.road_maximum_width, True)

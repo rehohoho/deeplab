@@ -1,12 +1,12 @@
 
-export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/deeplab
+export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/
 export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/slim
 
 DATASET_NAME="bdd"
 PATH_TO_DATASET="/home/whizz/Desktop/deeplabv3/deeplab/datasets/${DATASET_NAME}"
 PATH_TO_TFRECORDS="${PATH_TO_DATASET}/tfrecords"
 
-python vis.py \
+python /home/whizz/Desktop/deeplabv3/deeplab/vis.py \
     --logtostderr \
     --vis_split="val" \
     --model_variant="xception_65" \

@@ -1,8 +1,5 @@
 
-export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/deeplab
-
-#Shell script to open up a pygame console to visualise recorded data or predicted data
-python post/seg_flag_acc.py \
--i /home/whizz/data/seg_test_results \
--f1 /home/whizz/data/seg_test_post/probably_crap.csv \
--f2 /home/whizz/data/manual_check.txt
+python /home/whizz/Desktop/deeplabv3/deeplab/post/seg_flag_acc.py \
+    --image_path="/home/whizz/data/seg_test_results" \
+    --flags_path="/home/whizz/data/seg_test_post/probably_crap.csv" \
+    --gt_path="/home/whizz/data/manual_check.txt"

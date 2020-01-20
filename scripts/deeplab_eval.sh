@@ -1,17 +1,17 @@
 
 
-export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/deeplab
+export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/
 export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/slim
 
 DATASET_NAME="bdd+cityscapes+mapillary"
 PATH_TO_DATASET="/home/whizz/Desktop/deeplabv3/deeplab/datasets/${DATASET_NAME}"
 PATH_TO_TFRECORDS="${PATH_TO_DATASET}/tfrecords"
 
-python run_during_eval.py \
+python /home/whizz/Desktop/deeplabv3/deeplab/run_during_eval.py \
     --checkpoint_dir="${PATH_TO_DATASET}/adam_.0000001" \
     --event_dir="${PATH_TO_DATASET}/adam_.0000001_eval" &
     
-python eval.py \
+python /home/whizz/Desktop/deeplabv3/deeplab/eval.py \
     --logtostderr \
     --eval_split="val" \
     --model_variant="xception_65" \

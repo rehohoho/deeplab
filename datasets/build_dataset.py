@@ -1,56 +1,4 @@
-# Lint as: python2, python3
-# Copyright 2018 The TensorFlow Authors All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
 
-"""Converts PASCAL VOC 2012 data to TFRecord file format with Example protos.
-
-PASCAL VOC 2012 dataset is expected to have the following directory structure:
-
-  + pascal_voc_seg
-    - build_data.py
-    - build_voc2012_data.py (current working directory).
-    + VOCdevkit
-      + VOC2012
-        + JPEGImages
-        + SegmentationClass
-        + ImageSets
-          + Segmentation
-    + tfrecord
-
-Image folder:
-  ./VOCdevkit/VOC2012/JPEGImages
-
-Semantic segmentation annotations:
-  ./VOCdevkit/VOC2012/SegmentationClass
-
-list folder:
-  ./VOCdevkit/VOC2012/ImageSets/Segmentation
-
-This script converts data into sharded data files and save at tfrecord folder.
-
-The Example proto contains the following fields:
-
-  image/encoded: encoded image content.
-  image/filename: image filename.
-  image/format: image file format.
-  image/height: image height.
-  image/width: image width.
-  image/channels: image channels.
-  image/segmentation/class/encoded: encoded semantic segmentation content.
-  image/segmentation/class/format: semantic segmentation file format.
-"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -196,7 +144,7 @@ if __name__ == '__main__':
     os.mkdir(FLAGS.output_dir)
     print('created tfrecord directory')
 
-  if FLAGS.gpu_utilise == -1:
+  if FLAGS.gpu_utilise == "-1":
     environ["CUDA_VISIBLE_DEVICES"] = "-1" #disables GPU
   
   _NUM_SHARDS = 4
