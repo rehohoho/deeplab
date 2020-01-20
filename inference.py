@@ -245,7 +245,7 @@ def showLabels(transdict, labelnames, colormap):
     plt.show()
 
 
-def folder_seg(fp, op, translateMaskInd):
+def folder_seg(fp, op, translateMaskInd, comparison):
     """ Segments all jpg from folderPath and outputs segmented image in outputpath
     
     Args:
@@ -277,8 +277,9 @@ def folder_seg(fp, op, translateMaskInd):
 
             seg_image = label_to_color_image(seg_map).astype(np.uint8)
                             
-            new_im = np.hstack( (resized_im, seg_image) )
-            new_im = Image.fromarray(new_im)
+            if comparison:
+                seg_image = np.hstack( (resized_im, seg_image) )
+            new_im = Image.fromarray(seg_image)
             new_im.save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
 
 
@@ -286,6 +287,13 @@ def numericalSort(filenames):
     """ sort filenames in directory by index, then position
     ensure temporal continuity for post methods that use previous frames
     """
+
+    # check if filename has direction or is all digits
+    filename = filenames[0]
+    if not ('left' in filename or 'mid' in filename or 'right' in filename):
+        new_filenames = filenames
+        new_filenames.sort()
+        return( new_filenames )
 
     new_filenames = []
 
@@ -369,7 +377,7 @@ def boundary_optimisation(image, n_segments, seg_map):
     return(im_adhereBoundary)
 
 
-def folder_seg_withpost(fp, op, translateMaskInd, crf_pos, crf_col, crf_smooth):
+def folder_seg_withpost(fp, op, translateMaskInd, crf_pos, crf_col, crf_smooth, comparison):
     """ Segments all jpg from folderPath and outputs segmented image in outputpath
     
     Args:
@@ -420,8 +428,9 @@ def folder_seg_withpost(fp, op, translateMaskInd, crf_pos, crf_col, crf_smooth):
             seg_map = np.reshape( seg_map, (height,width) )
             seg_image = label_to_color_image(seg_map).astype(np.uint8)
 
-            new_im = np.hstack( (resized_im, seg_image) )
-            new_im = Image.fromarray(new_im)
+            if comparison:
+                seg_image = np.hstack( (resized_im, seg_image) )
+            new_im = Image.fromarray(seg_image)
             #Image.alpha_composite(black, new_im).save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
             new_im.save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
 
@@ -498,7 +507,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '-md',
         "--model_directory",
-        default= './pretrained_models',
+        required=True,
         help= "path to the directdory with tar.gz model checkpoint")
 
     parser.add_argument(
@@ -534,9 +543,17 @@ if __name__ == "__main__":
     parser.add_argument(
         '-p',
         "--post",
-        default=True,
+        default=1,
+        type= int,
         help= "apply post processing")
 
+    parser.add_argument(
+        '-c',
+        "--comparison",
+        default=1,
+        type= int,
+        help= "attach segmentation image with original")
+    
     parser.add_argument(
         '-gpu',
         "--gpu_utilise",
@@ -566,12 +583,14 @@ if __name__ == "__main__":
         print_tensors(download_path, args.print_tensor)
 
     print('input folder %s, output folder %s' %(args.image_folder, args.output_folder))
-    if args.post=="True":
+    if args.post:
         print('applying post processing')
-        folder_seg_withpost(args.image_folder, args.output_folder, True, int(args.crf_pos), int(args.crf_col), int(args.crf_smooth) )
+        folder_seg_withpost(args.image_folder, args.output_folder, True, 
+                            int(args.crf_pos), int(args.crf_col), int(args.crf_smooth),
+                            args.comparison)
     else:
         print('not applying post processing')
-        folder_seg(args.image_folder, args.output_folder, True)
+        folder_seg(args.image_folder, args.output_folder, True, args.comparison)
 
 
 
