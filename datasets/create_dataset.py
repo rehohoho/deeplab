@@ -8,16 +8,10 @@ import numpy as np
 from label_handler.label_handler import *
 from datetime import datetime
 
-def create_trainvaltest(dataset_source,
-    imagefolder_path, image_name_format, requiredType,
-    segfolder_path, seg_name_format,
-    dataset_path, datasetName,
-    trainNo, valNo, testNo):
-    
-    numOfImages = [trainNo, valNo, testNo]
-    numOfImages = [int(i) for i in numOfImages]
 
-    newdataset_path = os.path.join( args.dataset_path, datasetName)
+def create_directories(newdataset_path, imagefolder_path, segfolder_path):
+    """ create lists of directories to process images """
+
     segPath = os.path.join(newdataset_path, 'seg')
     paths = [newdataset_path, segPath,
             os.path.join(newdataset_path, 'train'),
@@ -35,7 +29,36 @@ def create_trainvaltest(dataset_source,
         if not os.path.exists(pathname):
             os.mkdir(pathname)
             print('created directory %s' %pathname)
+    
+    return(segPath, paths, imgPaths, segPaths)
 
+
+def create_trainvaltest(dataset_source,
+    imagefolder_path, image_name_format, requiredType,
+    segfolder_path, seg_name_format,
+    dataset_path, datasetName,
+    trainNo, valNo, testNo):
+    """ Process images fromraw dataset into directories compatible with build_dataset 
+    
+    Args:
+        dataset_source      string, type of dataset used (BDD, CITYSCAPES or MAPILLARY only)
+        imagefolder_path    path,   dataset images folder
+        image_name_format   string, image naming convention, eg. .jpg (MAPILLARY) or _leftImg8bit.png (CITYSCAPES)
+        segfolder_path      path,   dataset labels folder
+        seg_name_format     string, label naming convention, eg. .png (MAPILLARY) or _train_id.png (BDD)
+        dataset_path        path,   deeplab dataset folder
+        datasetName         string, desired folder name
+        trainNo             int,    train split
+        valNo               int,    val split
+        testNo              int,    test split
+    """
+
+    numOfImages = [trainNo, valNo, testNo]
+    numOfImages = [int(i) for i in numOfImages]
+
+    newdataset_path = os.path.join( dataset_path, datasetName)
+    segPath, paths, imgPaths, segPaths = create_directories(new_dataset_path, imagefolder_path, segfolder_path)
+    
     imgType = image_name_format[-3:] == requiredType    #enforce image type
     cityscapes = dataset_source=="CITYSCAPES"           #check if need convert labels
     mapillary = dataset_source=="MAPILLARY"             #check if need convert labels
@@ -52,11 +75,9 @@ def create_trainvaltest(dataset_source,
         i = 0
 
         walk = os.walk(currImgPath)
-        depth = -1
 
         for path, directories, files in walk:
             if files == []:
-                depth += 1
                 continue
             else:
                 for name in files:
@@ -99,7 +120,13 @@ def create_trainvaltest(dataset_source,
                     
 
 def create_index(dataset_path, datasetName):
+    """ Generate text file containing paths of data splits for build_dataset
     
+    Args:
+        dataset_path    path    deeplab datasets folder
+        datasetName     string  desired name for folder in dataset_path
+    """
+
     newdataset_path = os.path.join( args.dataset_path, datasetName)
     trainPath = os.path.join(newdataset_path, 'train')
     valPath = os.path.join(newdataset_path, 'val')
@@ -132,6 +159,12 @@ def create_index(dataset_path, datasetName):
 
 
 def create_imagesfolder(dataset_path, datasetName):
+    """ Combine directories for train/val 
+    
+    Args:
+        dataset_path    path    deeplab datasets folder
+        datasetName     string  desired name for folder in dataset_path
+    """
 
     newdataset_path = os.path.join( args.dataset_path, datasetName)
     trainPath = os.path.join(newdataset_path, 'train')
