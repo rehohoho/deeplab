@@ -2,18 +2,20 @@ import os
 from io import BytesIO
 import tarfile
 from six.moves import urllib
+import argparse
 
 # from matplotlib import gridspec
 # from matplotlib import pyplot as plt
 import numpy as np
 from PIL import Image
 import re
+import glob
 
 import tensorflow as tf
-from post.post_utils import *
+from post.post_utils import softmax_logits_forcrf, adhere_boundary
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_softmax
-from skimage.segmentation import slic, mark_boundaries
+# from skimage.segmentation import slic, mark_boundaries
 
 
 CITYSCAPES_LABEL_NAMES = np.asarray([
@@ -78,7 +80,16 @@ def create_cityscapes_label_colormap():
     ], dtype = np.uint8) )
 
 
-def print_tensors(tarball_path, textfile_path):
+def write_tensors_to_txt(tarball_path, textfile_path):
+    """ Create a text file with all tensors in checkpoint
+    
+    Args:
+        tarball_path    path    to tar.gz containing frozen_inference_graph.pb
+        textfile_path   path    to txt, to output
+    Saves:
+        txt file at textfile_path containing tensors from checkpoint
+    """
+    
     graph = tf.Graph()
 
     graph_def = None
@@ -102,7 +113,7 @@ def print_tensors(tarball_path, textfile_path):
         f.write( ''.join(list_of_tuples) )
         f.close()
     
-    return()
+    return
 
 
 class DeepLabModel(object):
@@ -110,7 +121,7 @@ class DeepLabModel(object):
 
     INPUT_TENSOR_NAME = 'ImageTensor:0'
     OUTPUT_TENSOR_NAME = 'SemanticPredictions:0'
-    #SOFTMAX_TENSOR_NAME = 'ResizeBilinear_1:0'     #for cityscapes checkpoint
+    #SOFTMAX_TENSOR_NAME = 'ResizeBilinear_1:0'     #for cityscapes pretrained checkpoint
     SOFTMAX_TENSOR_NAME = 'ResizeBilinear_2:0'      #for custom checkpoint
     INPUT_SIZE = 513
     FROZEN_GRAPH_NAME = 'frozen_inference_graph'
@@ -122,7 +133,7 @@ class DeepLabModel(object):
 
         graph_def = None
         tar_file = tarfile.open(tarball_path)
-        for tar_info in tar_file.getmembers():    #find relevant graph and extract frozen graph into graph_def
+        for tar_info in tar_file.getmembers():  #find relevant graph and extract frozen graph into graph_def
             if self.FROZEN_GRAPH_NAME in os.path.basename(tar_info.name):
                 file_handle = tar_file.extractfile(tar_info)
                 graph_def = tf.GraphDef.FromString(file_handle.read())
@@ -133,11 +144,10 @@ class DeepLabModel(object):
         if graph_def is None:
             raise RuntimeError('Cannot find inference graph in tar archive.')
 
-        with self.graph.as_default():             #load graph def into self.graph
+        with self.graph.as_default():           #load graph def into self.graph
             tf.import_graph_def(graph_def, name='')
         
-        #avoid cudnn load problem
-        session_config = tf.ConfigProto()
+        session_config = tf.ConfigProto()       #avoid cudnn load problem
         session_config.gpu_options.allow_growth = True
         
         self.sess = tf.Session(graph=self.graph, config=session_config)
@@ -220,9 +230,13 @@ def showLabels(transdict, labelnames, colormap):
     """ show labels and corresponding colors in a plot
     
     Args:
-        transdict: dictionary with labels to translate to
-        labelnames: (np)array with labels
-        colormap: 2D-(np)array with RGB colors
+        transdict:  dictionary      labels to translate to (eg. sky -> building)
+        labelnames: np.array        labels for dataset (n_labels)
+        colormap:   np.array        RGB colors for visualisation (n_labels x 3)
+    
+    CITYSCAPES_TRANSDICT
+    FULL_LABEL_MAP = np.arange(len(CITYSCAPES_LABEL_NAMES)).reshape(len(CITYSCAPES_LABEL_NAMES), 1)
+    FULL_COLOR_MAP = label_to_color_image(FULL_LABEL_MAP) #same colors used for same labels
     """
     
     if transdict is not None:
@@ -245,47 +259,15 @@ def showLabels(transdict, labelnames, colormap):
     plt.show()
 
 
-def folder_seg(fp, op, translateMaskInd, comparison):
-    """ Segments all jpg from folderPath and outputs segmented image in outputpath
-    
-    Args:
-        fp: path of folder with images to segment
-        op: path of folder to output segmented images
-        translateMaskInd: bool to indicate translation of index
-    """
-    
-    folderPath = os.path.abspath(fp)
-    outputPath = os.path.abspath(op)
-
-    if not os.path.exists(outputPath):          #creates directory if none found
-        os.mkdir(outputPath)
-        print('output directory not found, created one %s' %outputPath)
-    
-    for filename in os.listdir(folderPath):
-        if (filename.endswith('jpg') or filename.endswith('png')) and not os.path.exists( os.path.join(outputPath, '%s.png' %filename[:-4]) ):
-            
-            filedir = os.path.join(folderPath, filename)
-            print(filedir)
-            
-            im = Image.open(filedir)
-            resized_im, seg_map = MODEL.run(im)
-            
-            if translateMaskInd:
-                seg_map_len = len(seg_map)
-                for i in range(seg_map_len):    #change mask index
-                    seg_map[i] = [CITYSCAPES_TRANSDICT[j] for j in seg_map[i]]
-
-            seg_image = label_to_color_image(seg_map).astype(np.uint8)
-                            
-            if comparison:
-                seg_image = np.hstack( (resized_im, seg_image) )
-            new_im = Image.fromarray(seg_image)
-            new_im.save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
-
-
 def numericalSort(filenames):
-    """ sort filenames in directory by index, then position
+    """ sort filenames in directory by index, position, episode name
     ensure temporal continuity for post methods that use previous frames
+
+    Args:
+        filenames       list    of paths to images to perform inference
+    
+    Returns:
+        new_filenames   list    sorted by index, then position (left, mid, right)
     """
 
     # check if filename has direction or is all digits
@@ -299,18 +281,20 @@ def numericalSort(filenames):
 
     for filename in filenames:
         if filename.endswith('jpg') or filename.endswith('png'):
-            ind = re.findall(r'\d+', filename)
-            pos = None
+            ind = re.findall(r'\d+', filename)  #index
+            pos = None                          #left, mid, right
             if 'left' in filename:
                 pos = 'left'
             if 'mid' in filename:
                 pos = 'mid'
             if 'right' in filename:
                 pos = 'right'
-            new_filenames.append([filename, int(ind[-1]), pos])
+            episode_name = filename.split('/')[-2]
+            new_filenames.append([filename, int(ind[-1]), pos, episode_name])
     
     new_filenames.sort(key=lambda x:x[1])
     new_filenames.sort(key=lambda x:x[2])
+    new_filenames.sort(key=lambda x:x[3])
     new_filenames = [i[0] for i in new_filenames]
 
     return(new_filenames)
@@ -377,220 +361,172 @@ def boundary_optimisation(image, n_segments, seg_map):
     return(im_adhereBoundary)
 
 
-def folder_seg_withpost(fp, op, translateMaskInd, crf_pos, crf_col, crf_smooth, comparison):
+def folder_seg(folder_path, output_path, 
+                apply_crf, translate_labels, add_orig,
+                crf_pos, crf_col, crf_smooth):
     """ Segments all jpg from folderPath and outputs segmented image in outputpath
     
     Args:
-        fp: path of folder with images to segment
-        op: path of folder to output segmented images
-        translateMaskInd: bool to indicate translation of index
+        folder_path:        path    folder with images to segment
+        output_path:        path    folder to output segmented images
+        apply_crf           bool    whether to use crf
+        translate_labels:   bool    whether to translate labels
+        add_orig            bool    whether to attach original image
     """
     
-    folderPath = os.path.abspath(fp)
-    outputPath = os.path.abspath(op)
+    folderPath = os.path.abspath(folder_path)
+    outputPath = os.path.abspath(output_path)
 
     if not os.path.exists(outputPath):                #creates directory if none found
         os.mkdir(outputPath)
         print('output directory not found, created one %s' %outputPath)
     
-    filenames = os.listdir(folderPath)
+    filenames = [file for file in 
+        glob.glob( os.path.join(folder_path, '**/*.png'), recursive=True )
+    ]
     filenames = numericalSort(filenames)
-    post = None             # my trash
-    postcrf = None          # crf model
-    alph = np.array([])     # for displaying transparency reflecting confidence
-    black = np.array([])
-    outputCSV = []
+    
+    # conventional segmentation, get confidence via probability spread, utilise previous frames, colorfulness metrics
+    # post = None
+    # for displaying transparency reflecting confidence, use post_utils to get confidence
+    # black = Image.new('RGBA', (width*2, height), (0, 0, 0, 255))
     
     for filename in filenames:
-        if not os.path.exists( os.path.join(outputPath, '%s.png' %filename[:-4]) ):
+        
+        basename = os.path.join( filename.split('/')[-2], os.path.basename(filename) )
+        
+        # create directory for episode if doesn't exist
+        dirname = os.path.join( output_path, filename.split('/')[-2] )
+        if not os.path.exists(dirname):
+            print('Creating directory at %s' %dirname)
+            os.mkdir(dirname)
+
+        if not os.path.exists( os.path.join(outputPath, basename) ):
             
             filedir = os.path.join(folderPath, filename)
             print(filedir)
-            
             im = Image.open(filedir)
-            resized_im, logits = MODEL.getLogits(im)
-            height, width, classes = np.shape(logits)
             
-            if post == None:
-                post = imgGraph( np.shape(resized_im)[0], np.shape(resized_im)[1] )
-            if alph.size == 0:
-                alph = np.full( (height,width,1), 255, dtype = np.uint8 )
-            if black.size == 0:
-                black = Image.new('RGBA', (width*2, height), (0, 0, 0, 255))
+            # if post == None:      # handler only needs to initialised once
+            #     post = imgGraph( np.shape(resized_im)[0], np.shape(resized_im)[1] )
+            
+            # CRF requires logits, retrieve layer before argmax
+            if apply_crf:
+                resized_im, logits = MODEL.getLogits(im)
+                height, width, classes = np.shape(logits)
 
-            #logits = softmax_logits_forcrf(height, width, logits)
-            resized_im = np.array(resized_im)
-            logits, conf, n, colorfulness = calc_confidence_forcrf( 0.9, 0.3, height, width, logits, resized_im)
-            postcrf = generate_CRFmodel( resized_im, height, width, logits, 19, crf_pos, crf_col, crf_smooth)
+                resized_im = np.array(resized_im)
+                logits = softmax_logits_forcrf(height, width, logits)
+                postcrf = generate_CRFmodel( resized_im, height, width, logits, 19, crf_pos, crf_col, crf_smooth)
 
-            inf = postcrf.inference(5)          #(classes, pixels)
-            seg_map = np.argmax(inf, axis = 0)  #(pixels)
-            seg_map = np.reshape( seg_map, (height,width) )
+                inf = postcrf.inference(5)          #(classes, pixels)
+                seg_map = np.argmax(inf, axis = 0)  #(pixels)
+                seg_map = np.reshape( seg_map, (height,width) )
+            
+            # retrieve argmaxed logits
+            else:
+                resized_im, seg_map = MODEL.run(im)
+
+            if translate_labels:
+                seg_map_len = len(seg_map)
+                for i in range(seg_map_len):    #change mask index
+                    seg_map[i] = [CITYSCAPES_TRANSDICT[j] for j in seg_map[i]]
             seg_image = label_to_color_image(seg_map).astype(np.uint8)
 
-            if comparison:
+            if add_orig:
                 seg_image = np.hstack( (resized_im, seg_image) )
             new_im = Image.fromarray(seg_image)
             #Image.alpha_composite(black, new_im).save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
-            new_im.save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
+            new_im.save( os.path.join(outputPath, basename) )
 
-FULL_LABEL_MAP = np.arange(len(CITYSCAPES_LABEL_NAMES)).reshape(len(CITYSCAPES_LABEL_NAMES), 1)
-FULL_COLOR_MAP = label_to_color_image(FULL_LABEL_MAP) #same colors used for same labels
-
-
-#https://github.com/tensorflow/models/blob/master/research/deeplab/g3doc/model_zoo.md to check specs
-_MODEL_URLS = {
-    #PASCAL VOC 2012
-        'mobilenetv2_coco_voctrainaug':
-                'deeplabv3_mnv2_pascal_train_aug_2018_01_29.tar.gz',
-        'mobilenetv2_coco_voctrainval':
-                'deeplabv3_mnv2_pascal_trainval_2018_01_29.tar.gz',
-        'xception_coco_voctrainaug':
-                'deeplabv3_pascal_train_aug_2018_01_04.tar.gz',
-        'xception_coco_voctrainval':
-                'deeplabv3_pascal_trainval_2018_01_04.tar.gz',
-
-    #CITYSCAPES
-        #no ImageNet, stride 32, scale [1.0], mIOU 72.41 (val), multadds 15.95B
-        'mobilenetv3_large_cityscapes_trainfine':
-                'deeplab_mnv3_large_cityscapes_trainfine_2019_11_15.tar.gz',
-        #no ImageNet, stride 32, scale [1.0], mIOU 68.99, multadds 4.63B
-        'mobilenetv3_small_cityscapes_trainfine':
-                'deeplab_mnv3_small_cityscapes_trainfine_2019_11_15.tar.gz',
-        #stride 16,8, scale [1.0], no/yes flip, [0.75,0.25,1.25], mIOU 78.79/80.42 (val), multadds 419B/8678B
-        'xception65_cityscapes_trainfine':
-                'deeplabv3_cityscapes_train_2018_02_06.tar.gz',
-        #stride 16, scale [1.0], no flip, mIOU 80.31 (val), multadds 502B -> current best
-        'xception71_dpc_cityscapes_trainfine':
-                'deeplab_cityscapes_xception71_trainfine_2018_09_08.tar.gz',
-        #stride 8, scale [0.75,0.25,2], flip, mIOU 82.66 (test) -> my computer cannot handle
-        'xception71_dpc_cityscapes_trainval':
-                'deeplab_cityscapes_xception71_trainvalfine_2018_09_08.tar.gz',
-
-    #ADE20K
-        #stride 16, scale [1.0], no flip, mIOU 32.04% (val), pixelacc 75.41% (val)
-        'mobilenetv2_ade20k_train':
-                'deeplabv3_mnv2_ade20k_train_2018_12_03.tar.gz',
-        #stride 8, scale [0.25,0.5,1.75], flip, mIOU 45.65% (val), pixelacc 82.52% (val)
-        'xception65_ade20k_train':
-                'deeplabv3_xception_ade20k_train_2018_05_29.tar.gz'
-}
-
-"""
-MODEL_NAME = 'xception71_dpc_cityscapes_trainfine' #mobilenetv2_ade20k_train
-model_dir = os.getcwd() + '\\pretrained_models'
-download_path = os.path.join(model_dir, MODEL_NAME+'.tar.gz')
-print('MODEL = DeepLabModel(download_path)')
-print("folder_seg('230419/mid', '230419/mid_cityscapes', True, '')")
-#"""
-_DOWNLOAD_URL_PREFIX = 'http://download.tensorflow.org/models/'
-
-
-import argparse
 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        '-i',
-        "--image_folder",
+        '-i', '--image_folder',
         required=True,
-        help= "path to folder with images")
-
+        help= "path to folder with images"
+    )
     parser.add_argument(
-        '-o',
-        "--output_folder",
+        '-o', '--output_folder',
         required=True,
-        help= "path to folder for segmented images")
-    
+        help= "path to folder for segmented images"
+    ) 
     parser.add_argument(
-        '-md',
-        "--model_directory",
+        '-md', '--model_directory',
         required=True,
-        help= "path to the directdory with tar.gz model checkpoint")
-
+        help= "path to the directory with tar.gz model checkpoint"
+    )
     parser.add_argument(
-        '-mv',
-        "--model_variant",
-        default= 'xception71_dpc_cityscapes_trainfine',
-        help= "variant of model")
-    
-    parser.add_argument(
-        '-cp',
-        "--crf_pos",
+        '-cp', '--crf_pos',
         default=80,
-        help= "position threshold for appearance kernel in crf pairwise potential")
-    
+        type=int,
+        help= "position threshold for appearance kernel in crf pairwise potential"
+    )
     parser.add_argument(
-        '-cc',
-        "--crf_col",
+        '-cc', '--crf_col',
         default=26,
-        help= "color threshold for appearance kernel in crf pairwise potential")
-    
+        type=int,
+        help= "color threshold for appearance kernel in crf pairwise potential"
+    )
     parser.add_argument(
-        '-cs',
-        "--crf_smooth",
+        '-cs', '--crf_smooth',
         default=3,
-        help= "position threshold for smoothing kernel in crf pairwise potential")
-    
+        type=int,
+        help= "position threshold for smoothing kernel in crf pairwise potential"
+    )
     parser.add_argument(
-        '-t',
-        "--print_tensor",
+        '-t', '--print_tensor',
         default='',
-        help= "path to textfile with tensors")
-
+        help= "path to textfile with tensors"
+    )
     parser.add_argument(
-        '-p',
-        "--post",
-        default=1,
-        type= int,
-        help= "apply post processing")
-
+        '-p', '--use_crf',
+        default=False,
+        action='store_true',
+        help= "apply post processing"
+    )
     parser.add_argument(
-        '-c',
-        "--comparison",
-        default=1,
-        type= int,
-        help= "attach segmentation image with original")
-    
+        '-tl', '--translate_labels',
+        default=False,
+        action='store_true',
+        help= "apply post processing"
+    )
     parser.add_argument(
-        '-gpu',
-        "--gpu_utilise",
+        '-ao', '--add_orig',
+        default=False,
+        action='store_true',
+        help= "attach segmentation image with original"
+    )
+    parser.add_argument(
+        '-gpu', '--gpu_utilise',
         default=0,
-        help= "use the gpu")
-
+        type=int,
+        help= "use the gpu"
+    )
     args = parser.parse_args()
 
-    if args.gpu_utilise == "-1":
+    if args.gpu_utilise == -1:
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1" #disables GPU
-
-    download_path = os.path.join(args.model_directory, args.model_variant+'.tar.gz')
     
     if not os.path.exists(args.model_directory):
-        print('model directory not found. creating directory %s' %download_path)
-        os.mkdir(args.model_directory)
+        print('model directory not found. check is a tar.gz with frozen_inferene_graph.pb' %args.model_directory)
+        exit
 
-    if not os.path.exists(download_path):
-        download_url = _DOWNLOAD_URL_PREFIX + _MODEL_URLS[args.model_variant]
-        print('no model found, downloading model from %s into %s' %(download_url, download_path))
-        urllib.request.urlretrieve(download_url, download_path)
-
-    print('model checkpoint found at %s, loading model...' %download_path)
-    MODEL = DeepLabModel(download_path)
+    print('model checkpoint found at %s, loading model...' %args.model_directory)
+    MODEL = DeepLabModel(args.model_directory)
     
     if args.print_tensor != '':
-        print_tensors(download_path, args.print_tensor)
+        write_tensors_to_txt(args.model_directory, args.print_tensor)
+        exit
 
     print('input folder %s, output folder %s' %(args.image_folder, args.output_folder))
-    if args.post:
-        print('applying post processing')
-        folder_seg_withpost(args.image_folder, args.output_folder, True, 
-                            int(args.crf_pos), int(args.crf_col), int(args.crf_smooth),
-                            args.comparison)
-    else:
-        print('not applying post processing')
-        folder_seg(args.image_folder, args.output_folder, True, args.comparison)
+    folder_seg(args.image_folder, args.output_folder, 
+                args.use_crf, args.translate_labels, args.add_orig,
+                args.crf_pos, args.crf_col, args.crf_smooth)
+
 
 
 
