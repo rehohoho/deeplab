@@ -3,7 +3,7 @@ from libc.stdlib cimport malloc, free
 
 import numpy as np
 cimport numpy as np
-ctypedef np.uint8_t DTYPE_INT8
+ctypedef np.uint8_t DTYPE_UINT8
 
 from collections import deque
 
@@ -104,7 +104,7 @@ cdef class imgGraph:
         return(closestInd)
     
     
-    def load_labels(self, np.ndarray[DTYPE_INT8, ndim=3] img):
+    def load_labels(self, np.ndarray[DTYPE_UINT8, ndim=3] img):
         """ label each pixel by color closest to label in color map, fill buckets
         
         need to calculate closest color due to variation in color caused by:
@@ -255,7 +255,7 @@ cdef class imgGraph:
     def show_mask(self):
         """ outputs 2D array with label values for each pixel """
         
-        cdef np.ndarray[DTYPE_INT8, ndim=2] mask
+        cdef np.ndarray[DTYPE_UINT8, ndim=2] mask
         cdef short h,w, height = self.height, width = self.width
         
         mask = np.empty( (height, width), dtype = np.uint8 )

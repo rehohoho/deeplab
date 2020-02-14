@@ -362,7 +362,7 @@ def boundary_optimisation(image, n_segments, seg_map):
 
 
 def folder_seg(folder_path, output_path, 
-                apply_crf, translate_labels, add_orig,
+                apply_crf, translate_labels, add_orig, vis,
                 crf_pos, crf_col, crf_smooth):
     """ Segments all jpg from folderPath and outputs segmented image in outputpath
     
@@ -431,7 +431,11 @@ def folder_seg(folder_path, output_path,
                 seg_map_len = len(seg_map)
                 for i in range(seg_map_len):    #change mask index
                     seg_map[i] = [CITYSCAPES_TRANSDICT[j] for j in seg_map[i]]
-            seg_image = label_to_color_image(seg_map).astype(np.uint8)
+            
+            if vis:
+                seg_image = label_to_color_image(seg_map).astype(np.uint8)
+            else:
+                seg_image = seg_map.astype(np.uint8)
 
             if add_orig:
                 seg_image = np.hstack( (resized_im, seg_image) )
@@ -501,6 +505,12 @@ if __name__ == "__main__":
         help= "attach segmentation image with original"
     )
     parser.add_argument(
+        '-v', '--vis_mask',
+        default=False,
+        action='store_true',
+        help= "add visualization to mask"
+    )
+    parser.add_argument(
         '-gpu', '--gpu_utilise',
         default=0,
         type=int,
@@ -524,7 +534,7 @@ if __name__ == "__main__":
 
     print('input folder %s, output folder %s' %(args.image_folder, args.output_folder))
     folder_seg(args.image_folder, args.output_folder, 
-                args.use_crf, args.translate_labels, args.add_orig,
+                args.use_crf, args.translate_labels, args.add_orig, args.vis_mask,
                 args.crf_pos, args.crf_col, args.crf_smooth)
 
 

@@ -2,11 +2,9 @@
 export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/
 export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/slim
 
-DATASET_NAME="bdd+cityscapes+mapillary"
-PATH_TO_DATASET="/home/whizz/Desktop/deeplabv3/deeplab/datasets/${DATASET_NAME}"
-OUTPUT_DIR="/home/whizz/Desktop/deeplabv3/pretrainseg/pretrained_models"
-CHECKPOINT_NAME="deeplab_experiments_adam_adam_.00001_model.ckpt-5000"
-OUTPUT_MODEL_NAME="deeplab_adambest1"
+OUTPUT_DIR="/home/whizz/data/models"
+CHECKPOINT_NAME="model.ckpt-150000"
+OUTPUT_MODEL_NAME="deeplab_adam_150k"
 
 mkdir "${OUTPUT_DIR}/temp"
 
