@@ -15,6 +15,8 @@ import tensorflow as tf
 from post.post_utils import softmax_logits_forcrf, adhere_boundary
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_softmax
+
+from post.flagger_utils import imgGraph
 # from skimage.segmentation import slic, mark_boundaries
 
 
@@ -49,14 +51,7 @@ CITYSCAPES_TRANSDICT = {
     18:17                 #bicycle
 }
 
-def create_cityscapes_label_colormap():
-    """Creates a label colormap used in CITYSCAPES segmentation benchmark.
-
-        Returns:
-            A Colormap for visualizing segmentation results.
-    """
-    
-    return( np.array( [
+CITYSCAPES_COLMAP = np.array( [
     [128, 64,128],    #road
     [244, 35,232],    #sidewalk
     [ 70, 70, 70],    #building
@@ -77,7 +72,7 @@ def create_cityscapes_label_colormap():
     [  0,  0,230],
     [119, 11, 32]
     
-    ], dtype = np.uint8) )
+    ], dtype = np.uint8)
 
 
 def write_tensors_to_txt(tarball_path, textfile_path):
@@ -112,8 +107,38 @@ def write_tensors_to_txt(tarball_path, textfile_path):
         f = open(textfile_path, 'w')
         f.write( ''.join(list_of_tuples) )
         f.close()
+
+
+def showLabels(transdict, labelnames, colormap):
+    """ show labels and corresponding colors in a plot
     
-    return
+    Args:
+        transdict:  dictionary      labels to translate to (eg. sky -> building)
+        labelnames: np.array        labels for dataset (n_labels)
+        colormap:   np.array        RGB colors for visualisation (n_labels x 3)
+    
+    FULL_LABEL_MAP = np.arange(len(CITYSCAPES_LABEL_NAMES)).reshape(len(CITYSCAPES_LABEL_NAMES), 1)
+    FULL_COLOR_MAP = CITYSCAPES_COLMAP[FULL_LABEL_MAP] #same colors used for same labels
+    """
+    
+    if transdict is not None:
+        labels = [i for i in transdict.values()]
+        unique_labels = np.unique(labels)
+        new_colormap = [ FULL_COLOR_MAP[i] for i in unique_labels ]
+    else:
+        unique_labels = np.arange( len(labels) )
+        new_colormap = FULL_COLOR_MAP
+        
+    grid_spec = gridspec.GridSpec(1, 2, width_ratios=[6,1])
+    
+    ax = plt.subplot(grid_spec[0])
+    plt.imshow(new_colormap, interpolation='nearest')
+    ax.yaxis.tick_right()
+    plt.yticks(range(len(unique_labels)), labelnames[unique_labels])
+    plt.xticks([], [])
+    ax.tick_params(width=0.0)
+    plt.grid('off')
+    plt.show()
 
 
 class DeepLabModel(object):
@@ -152,6 +177,15 @@ class DeepLabModel(object):
         
         self.sess = tf.Session(graph=self.graph, config=session_config)
 
+    def resize_image(self, image):
+        
+        width, height = image.size
+        resize_ratio = 1.0 * self.INPUT_SIZE / max(width, height)
+        target_size = (int(resize_ratio * width), int(resize_ratio * height))
+        resized_image = image.convert('RGB').resize(target_size, Image.ANTIALIAS)
+
+        return(resized_image)
+
     def run(self, image):
         """Runs inference on a single image.
 
@@ -163,10 +197,7 @@ class DeepLabModel(object):
             seg_map: Segmentation map of `resized_image`.
         """
         
-        width, height = image.size                            #resize image
-        resize_ratio = 1.0 * self.INPUT_SIZE / max(width, height)
-        target_size = (int(resize_ratio * width), int(resize_ratio * height))
-        resized_image = image.convert('RGB').resize(target_size, Image.ANTIALIAS)
+        resized_image = self.resize_image(image)
         
         batch_seg_map = self.sess.run(                    #run tf session to get mask
                 self.OUTPUT_TENSOR_NAME,
@@ -184,11 +215,9 @@ class DeepLabModel(object):
             resized_image: RGB image resized from original input image. (input_size, input_size, 3)
             logits: 2D array containing class probability of each pixel (pixelNo, classNo)
         """
-        width, height = image.size                            #resize image
-        resize_ratio = 1.0 * self.INPUT_SIZE / max(width, height)
-        target_size = (int(resize_ratio * width), int(resize_ratio * height))
-        resized_image = image.convert('RGB').resize(target_size, Image.ANTIALIAS)
         
+        resized_image = self.resize_image(image)
+
         logits = self.sess.run(                    #run tf session to get mask
                 self.SOFTMAX_TENSOR_NAME,
                 feed_dict={self.INPUT_TENSOR_NAME: [np.asarray(resized_image)]})
@@ -197,66 +226,6 @@ class DeepLabModel(object):
         logits = logits[:target_size[1], :target_size[0]]
         
         return resized_image, logits
-
-
-def label_to_color_image(label):
-    """Adds color defined by the dataset colormap to the label.
-
-    Args:
-        label: A 2D array with integer type, storing the segmentation label.
-
-    Returns:
-        result: A 2D array with floating type. The element of the array
-            is the color indexed by the corresponding element in the input label
-            to the PASCAL color map.
-
-    Raises:
-        ValueError: If label is not of rank 2 or its value is larger than color
-            map maximum entry.
-    """
-    if label.ndim != 2:
-        raise ValueError('Expect 2-D input label')
-
-    #colormap = create_pascal_label_colormap()
-    colormap = create_cityscapes_label_colormap()
-
-    if np.max(label) >= len(colormap):
-        raise ValueError('label value too large.')
-
-    return colormap[label]
-
-
-def showLabels(transdict, labelnames, colormap):
-    """ show labels and corresponding colors in a plot
-    
-    Args:
-        transdict:  dictionary      labels to translate to (eg. sky -> building)
-        labelnames: np.array        labels for dataset (n_labels)
-        colormap:   np.array        RGB colors for visualisation (n_labels x 3)
-    
-    CITYSCAPES_TRANSDICT
-    FULL_LABEL_MAP = np.arange(len(CITYSCAPES_LABEL_NAMES)).reshape(len(CITYSCAPES_LABEL_NAMES), 1)
-    FULL_COLOR_MAP = label_to_color_image(FULL_LABEL_MAP) #same colors used for same labels
-    """
-    
-    if transdict is not None:
-        labels = [i for i in transdict.values()]
-        unique_labels = np.unique(labels)
-        new_colormap = [ FULL_COLOR_MAP[i] for i in unique_labels ]
-    else:
-        unique_labels = np.arange( len(labels) )
-        new_colormap = FULL_COLOR_MAP
-        
-    grid_spec = gridspec.GridSpec(1, 2, width_ratios=[6,1])
-    
-    ax = plt.subplot(grid_spec[0])
-    plt.imshow(new_colormap, interpolation='nearest')
-    ax.yaxis.tick_right()
-    plt.yticks(range(len(unique_labels)), labelnames[unique_labels])
-    plt.xticks([], [])
-    ax.tick_params(width=0.0)
-    plt.grid('off')
-    plt.show()
 
 
 def numericalSort(filenames):
@@ -298,6 +267,11 @@ def numericalSort(filenames):
     new_filenames = [i[0] for i in new_filenames]
 
     return(new_filenames)
+
+
+def parse_image_size(img_size_string):
+    img_size = img_size_string.split(",")
+    return (int(img_size[0]),int(img_size[1]))
 
 
 def generate_CRFmodel(img, height, width, smLogits, n_labels, crf_pos, crf_col, crf_smooth):
@@ -362,8 +336,8 @@ def boundary_optimisation(image, n_segments, seg_map):
 
 
 def folder_seg(folder_path, output_path, 
-                apply_crf, translate_labels, add_orig, vis,
-                crf_pos, crf_col, crf_smooth):
+                apply_crf, translate_labels, add_orig, vis, mark_main_road,
+                crf_pos, crf_col, crf_smooth, mask_size):
     """ Segments all jpg from folderPath and outputs segmented image in outputpath
     
     Args:
@@ -386,8 +360,13 @@ def folder_seg(folder_path, output_path,
     ]
     filenames = numericalSort(filenames)
     
+    if vis:
+        resize_method = Image.ANTIALIAS
+    else:
+        resize_method = Image.NEAREST
+
     # conventional segmentation, get confidence via probability spread, utilise previous frames, colorfulness metrics
-    # post = None
+    road_marker = None
     # for displaying transparency reflecting confidence, use post_utils to get confidence
     # black = Image.new('RGBA', (width*2, height), (0, 0, 0, 255))
     
@@ -407,9 +386,6 @@ def folder_seg(folder_path, output_path,
             print(filedir)
             im = Image.open(filedir)
             
-            # if post == None:      # handler only needs to initialised once
-            #     post = imgGraph( np.shape(resized_im)[0], np.shape(resized_im)[1] )
-            
             # CRF requires logits, retrieve layer before argmax
             if apply_crf:
                 resized_im, logits = MODEL.getLogits(im)
@@ -422,10 +398,19 @@ def folder_seg(folder_path, output_path,
                 inf = postcrf.inference(5)          #(classes, pixels)
                 seg_map = np.argmax(inf, axis = 0)  #(pixels)
                 seg_map = np.reshape( seg_map, (height,width) )
-            
+
             # retrieve argmaxed logits
             else:
                 resized_im, seg_map = MODEL.run(im)
+
+            if mark_main_road:
+                if road_marker == None:      # handler only needs to initialised once
+                    road_marker = imgGraph( np.shape(resized_im)[0], np.shape(resized_im)[1], \
+                                            CITYSCAPES_COLMAP.astype(np.float32))
+                
+                road_marker.load_mask(seg_map.astype(np.uint8))
+                road_marker.mark_main_road(0.5)   #threshold to reject road, percentage of height
+                seg_map = road_marker.show_mask()
 
             if translate_labels:
                 seg_map_len = len(seg_map)
@@ -433,13 +418,17 @@ def folder_seg(folder_path, output_path,
                     seg_map[i] = [CITYSCAPES_TRANSDICT[j] for j in seg_map[i]]
             
             if vis:
-                seg_image = label_to_color_image(seg_map).astype(np.uint8)
+                seg_image = CITYSCAPES_COLMAP[seg_map].astype(np.uint8)
             else:
                 seg_image = seg_map.astype(np.uint8)
 
             if add_orig:
                 seg_image = np.hstack( (resized_im, seg_image) )
             new_im = Image.fromarray(seg_image)
+
+            if mask_size != new_im.size and not add_orig:
+                new_im = new_im.resize(mask_size, resize_method)
+                
             #Image.alpha_composite(black, new_im).save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
             new_im.save( os.path.join(outputPath, basename) )
 
@@ -516,6 +505,17 @@ if __name__ == "__main__":
         type=int,
         help= "use the gpu"
     )
+    parser.add_argument(
+        '-mm', '--mark_main_road',
+        default=False,
+        action='store_true',
+        help= "mark the main road"
+    )
+    parser.add_argument(
+        '-is', '--mask_size',
+        default="513,513",
+        help= "change the image size to this tuple size"
+    )
     args = parser.parse_args()
 
     if args.gpu_utilise == -1:
@@ -534,8 +534,8 @@ if __name__ == "__main__":
 
     print('input folder %s, output folder %s' %(args.image_folder, args.output_folder))
     folder_seg(args.image_folder, args.output_folder, 
-                args.use_crf, args.translate_labels, args.add_orig, args.vis_mask,
-                args.crf_pos, args.crf_col, args.crf_smooth)
+                args.use_crf, args.translate_labels, args.add_orig, args.vis_mask, args.mark_main_road,
+                args.crf_pos, args.crf_col, args.crf_smooth,parse_image_size(args.mask_size))
 
 
 
@@ -575,7 +575,7 @@ postcrf = generate_CRFmodel( im, height, width, nll, 19, 80, 26, 3)
 inf = postcrf.inference(5)          #(classes, pixels)
 seg_map = np.argmax(inf, axis = 0)  #(pixels)
 seg_map = np.reshape( seg_map, (height,width) )
-seg_image = label_to_color_image(seg_map).astype(np.uint8)
+seg_image = CITYSCAPES_COLMAP[seg_map].astype(np.uint8)
 seg_image = Image.fromarray(seg_image)
 seg_image.save('frame_0_left_segpost_withcrf.png')
 
@@ -619,4 +619,16 @@ more ideas:
 - check color histogram, if colours less spread out increase crf col threshold (2x)
 - check segmentation confidence, increase crf thresholds (appearance accordingly)
 - compare to average confidence?
+
+
+import glob
+import os
+import numpy as np
+from PIL import Image
+files = [f for f in glob.glob('**/*.png')]
+print(len(files))
+for f in files:
+    classes = np.unique(np.array(Image.open(f)))
+    if not np.all(classes<20):
+        print(f, classes)
 """
