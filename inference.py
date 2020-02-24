@@ -178,7 +178,8 @@ class DeepLabModel(object):
         self.sess = tf.Session(graph=self.graph, config=session_config)
 
     def resize_image(self, image):
-        
+        """ Resize image such that longer size == self.INPUT_SIZE """
+
         width, height = image.size
         resize_ratio = 1.0 * self.INPUT_SIZE / max(width, height)
         target_size = (int(resize_ratio * width), int(resize_ratio * height))
@@ -222,8 +223,9 @@ class DeepLabModel(object):
                 self.SOFTMAX_TENSOR_NAME,
                 feed_dict={self.INPUT_TENSOR_NAME: [np.asarray(resized_image)]})
         
+        width, height = resized_image.size
         logits = np.squeeze(logits)
-        logits = logits[:target_size[1], :target_size[0]]
+        logits = logits[:height, :width]
         
         return resized_image, logits
 

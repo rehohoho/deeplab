@@ -140,16 +140,13 @@ cdef class imgGraph:
     def load_mask(self, np.ndarray[DTYPE_UINT8, ndim=2] mask):
 
         cdef short h, w, height = self.height, width = self.width
-        cdef int n = 0, raw_label
+        cdef int n = 0
 
         for h in range(height):
             
             for w in range(width):
 
-                raw_label = mask[h, w]
-                if raw_label == 1:
-                    raw_label = 0
-                self.nodes[n].label = raw_label
+                self.nodes[n].label = mask[h, w]
                 n += 1
 
 
@@ -160,8 +157,8 @@ cdef class imgGraph:
             self.nodes[i].label = transdict[self.nodes[i].label]
         
     
-    cdef int mark_region(self, q):
-        """ relabels all pixels connecting (left, right, top, down) with label == 0 (road)
+    cdef int mark_region(self, q, int tar_class):
+        """ relabels all pixels connecting (left, right, top, down) with label == tar_class (road)
             
             updates following class variables:
                 - buckets
@@ -173,17 +170,17 @@ cdef class imgGraph:
         """
         
         cdef short height = self.height, width = self.width, x, y, ythres = <short>(0.9*self.height)
-        cdef int nodeRef
+        cdef int n
         cdef unsigned char label
-        cdef node *n
+        cdef node *nodeRef
         
         while q:                        #loops till empty
-            n = &self.nodes[ q.popleft() ]
-            if n.label == 0:
-                n.label = 1
+            nodeRef = &self.nodes[ q.popleft() ]
+            if nodeRef.label == tar_class:
+                nodeRef.label = 1
                 
-                x = n.pixelx
-                y = n.pixely
+                x = nodeRef.pixelx
+                y = nodeRef.pixely
                 
                 self.buckets[1] += 1    #update buckets
                 self.buckets[0] -= 1
@@ -193,11 +190,11 @@ cdef class imgGraph:
                 if x > self.mainRoadRight and y < ythres:
                     self.mainRoadRight = x
                 
-                nodeRef = y*width + x
+                n = y*width + x
                 if x > 0:               #checks left
-                    label = self.nodes[ nodeRef-1 ].label
-                    if label == 0:
-                        q.append( nodeRef-1 )
+                    label = self.nodes[ n-1 ].label
+                    if label == tar_class:
+                        q.append( n-1 )
                     if label > 1:
                         self.side += 1
                         self.mr_sizeSide += 1
@@ -206,33 +203,32 @@ cdef class imgGraph:
                     self.mr_sizeSide += 1
                     
                 if x < width - 1:       #checks right
-                    label = self.nodes[ nodeRef+1 ].label
-                    if label == 0:
-                        q.append( nodeRef+1 )
+                    label = self.nodes[ n+1 ].label
+                    if label == tar_class:
+                        q.append( n+1 )
                     
                 if y > 0:               #checks top
-                    label = self.nodes[ nodeRef-width ].label
-                    if label == 0:
-                        q.append( nodeRef-width )
+                    label = self.nodes[ n-width ].label
+                    if label == tar_class:
+                        q.append( n-width )
                     if label > 1:
                         self.top += 1
                         self.mr_sizeTop += 1
                         
                 if y < height - 1:      #checks bottom
-                    label = self.nodes[ nodeRef+width ].label
-                    if label == 0:
-                        q.append( nodeRef+width )
+                    label = self.nodes[ n+width ].label
+                    if label == tar_class:
+                        q.append( n+width )
                     if label > 1:
                         self.bottom += 1
         
     
-    def mark_main_road(self, noThres):
+    def mark_main_road(self, float noThres):
         """ label pixels (label = 0) connecting from the bottom """
         
         cdef short h, w, height = self.height, width = self.width
-        cdef int nodeRef, mainRoadNo = 0, spaceBet = self.width
+        cdef int n, tar_class, mainRoadNo = 0, spaceBet = self.width
         cdef float currWidest = 0, largestLeft, largestRight, mainMinThres
-        cdef node *n
         
         mainMinThres = 0.13 * noThres * <float>self.height
 
@@ -241,16 +237,17 @@ cdef class imgGraph:
         h = height - 1
         for w in range(width):
             
-            nodeRef = h*width + w
-            if self.nodes[nodeRef].label == 0:
-                q.append(nodeRef)
+            n = h*width + w
+            tar_class = self.nodes[n].label
+            if tar_class == 0:
+                q.append(n)
                 
                 self.mr_sizeSide = 0            #reset metrics for next region
                 self.mr_sizeTop = 0
                 self.mainRoadLeft = width - 1
                 self.mainRoadRight = 0
                 
-                self.mark_region(q)
+                self.mark_region(q, tar_class)
                 
                 if self.mainRoadRight - self.mainRoadLeft > currWidest:     #retain widest portion
                     currWidest = self.mainRoadRight - self.mainRoadLeft

@@ -12,9 +12,7 @@ python /home/whizz/Desktop/deeplabv3/deeplab/inference.py \
     --crf_smooth=3 \
     --use_crf \
     --mark_main_road \
-    --mask_size="1280,960" \
-    --vis_mask \
-    --add_orig
+    --mask_size="1280,960"
 
     
     # --print_tensor='directory/tensors.txt'                # path to text file, no segmentation, only check checkpoint model

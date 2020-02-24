@@ -1,4 +1,6 @@
 datasets/bdd+cityscapes+mapillary/
+post/*.pyd
+post/*.so
 
 *.pyc
 *.ipynb
