@@ -4,6 +4,7 @@ from libc.stdlib cimport malloc, free
 import numpy as np
 cimport numpy as np
 ctypedef np.uint8_t DTYPE_UINT8
+ctypedef np.int32_t DTYPE_INT32
 
 from collections import deque
 
@@ -136,6 +137,22 @@ cdef class imgGraph:
                 self.buckets[label] += 1
       
     
+    def load_mask(self, np.ndarray[DTYPE_UINT8, ndim=2] mask):
+
+        cdef short h, w, height = self.height, width = self.width
+        cdef int n = 0, raw_label
+
+        for h in range(height):
+            
+            for w in range(width):
+
+                raw_label = mask[h, w]
+                if raw_label == 1:
+                    raw_label = 0
+                self.nodes[n].label = raw_label
+                n += 1
+
+
     def translate_labels(self, transdict):
         cdef int i, nodesNo = self.nodesNo
         
@@ -255,10 +272,10 @@ cdef class imgGraph:
     def show_mask(self):
         """ outputs 2D array with label values for each pixel """
         
-        cdef np.ndarray[DTYPE_UINT8, ndim=2] mask
+        cdef np.ndarray[DTYPE_INT32, ndim=2] mask
         cdef short h,w, height = self.height, width = self.width
         
-        mask = np.empty( (height, width), dtype = np.uint8 )
+        mask = np.empty( (height, width), dtype = np.int32 )
         
         for h in range(height):
             
