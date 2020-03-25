@@ -41,7 +41,7 @@ def create_trainvaltest(dataset_source,
     """ Process images fromraw dataset into directories compatible with build_dataset 
     
     Args:
-        dataset_source      string, type of dataset used (BDD, CITYSCAPES or MAPILLARY only)
+        dataset_source      string, type of dataset used (BDD, CITYSCAPES, MAPILLARY or SCOOTER only)
         imagefolder_path    path,   dataset images folder
         image_name_format   string, image naming convention, eg. .jpg (MAPILLARY) or _leftImg8bit.png (CITYSCAPES)
         segfolder_path      path,   dataset labels folder
@@ -56,12 +56,13 @@ def create_trainvaltest(dataset_source,
     numOfImages = [trainNo, valNo, testNo]
     numOfImages = [int(i) for i in numOfImages]
 
-    newdataset_path = os.path.join( dataset_path, datasetName)
+    new_dataset_path = os.path.join( dataset_path, datasetName)
     segPath, paths, imgPaths, segPaths = create_directories(new_dataset_path, imagefolder_path, segfolder_path)
     
     imgType = image_name_format[-3:] == requiredType    #enforce image type
     cityscapes = dataset_source=="CITYSCAPES"           #check if need convert labels
     mapillary = dataset_source=="MAPILLARY"             #check if need convert labels
+    scooter = dataset_source =="SCOOTER"
 
     label_converter = imgHandler()
 
@@ -82,12 +83,17 @@ def create_trainvaltest(dataset_source,
             else:
                 for name in files:
                     
+                    if not name.endswith('png') and not name.endswith('jpg'): continue
+
                     f = os.path.join(path,name)
 
                     if not imgType:
                         im = Image.open(f)
-                        baseName = '%s.%s' %( os.path.splitext( os.path.basename(f) )[0], requiredType)
-                        im.save(os.path.join( currPath, baseName ) )
+                        if scooter:
+                            baseName = '%s_%s.%s' %( path.split('/')[-1], os.path.splitext( os.path.basename(f) )[0], requiredType)
+                        else:
+                            baseName = '%s.%s' %( os.path.splitext( os.path.basename(f) )[0], requiredType)
+                        im.save( os.path.join( currPath, baseName ) )
                     elif mapillary:
                         im = Image.open(f)
                         im = im.resize((2048,1024), Image.ANTIALIAS)
@@ -100,17 +106,22 @@ def create_trainvaltest(dataset_source,
                         
                         s = f.replace( currImgPath, currSegPath )
                         s = s.replace( image_name_format, seg_name_format )
+                        savePath = os.path.join( segPath, os.path.basename(s) )
                         
                         if cityscapes:
-                            label_converter.label_cityscapes(s, segPath)
+                            im = label_converter.label_cityscapes(s, segPath)
+                            im.save(os.path.join( segPath, os.path.basename(s) ) )
                         elif mapillary:
-                            label_converter.label_mapillary(s, segPath)
+                            im = label_converter.label_mapillary(s, segPath)
+                            im.save(os.path.join( segPath, os.path.basename(s) ) )
+                        elif scooter:
+                            savePath = os.path.join(segPath, '%s_%s' %(path.split('/')[-1], os.path.basename(s)))
+                            copy(s,savePath)
                         else:
                             copy(s,segPath)
 
-                        oldname = os.path.join( segPath, os.path.basename(s) )
-                        newname = oldname.replace( seg_name_format, image_name_format[:-4]+'_label.png' )
-                        os.rename( oldname, newname )
+                        newname = savePath.replace( seg_name_format, image_name_format[:-4]+'_label.png' )
+                        os.rename( savePath, newname )
 
                     i += 1
                     if i >= currMaxNo:
@@ -192,68 +203,57 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
     parser.add_argument(
-        '-src',
-        "--dataset_source",
+        '-src', "--dataset_source",
         required=True,
         help= "source of dataset")
 
     parser.add_argument(
-        '-i',
-        "--imagefolder_path",
+        '-i', "--imagefolder_path",
         required=True,
         help= "path to folder with images")
 
     parser.add_argument(
-        '-fi',
-        "--image_name_format",
+        '-fi', "--image_name_format",
         required=True,
         help= "name to append when searching images in directory")
 
     parser.add_argument(
-        '-s',
-        "--segfolder_path",
+        '-s', "--segfolder_path",
         required=True,
         help= "path to folder with segmentations")
 
     parser.add_argument(
-        '-fs',
-        "--seg_name_format",
+        '-fs', "--seg_name_format",
         required=True,
         help= "name to append when searching seg in directory")
 
     parser.add_argument(
-        '-o',
-        "--dataset_path",
+        '-o', "--dataset_path",
         required=True,
         help= "path to deeplab/datasets")
     
     parser.add_argument(
-        '-n',
-        "--dataset_name",
+        '-n', "--dataset_name",
         required=True,
         help= "name of data set")
     
     parser.add_argument(
-        '-fo',
-        "--output_format",
+        '-fo', "--output_format",
         required=True,
         help= "image type for training")
     
     parser.add_argument(
-        '-t1',
-        "--train",
+        '-t1', "--train",
         required=True,
         help= "number of training images")
     
     parser.add_argument(
-        '-t2',
-        "--val",
+        '-t2', "--val",
         required=True,
         help= "number of validation images")
     
     parser.add_argument(
-        '-t3',
-        "--test",
+        '-t3', "--test",
         required=True,
         help= "number of test images")
     

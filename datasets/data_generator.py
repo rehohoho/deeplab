@@ -135,6 +135,15 @@ _BDD_CITY_MAPIL_INFORMATION = DatasetDescriptor(
     ignore_label=255,
 )
 
+_SCOOTER_HALFLABELLED_INFORMATION = DatasetDescriptor(
+    splits_to_sizes={
+        'train': 4251,  # num of samples in images/training
+        'val': 906,  # num of samples in images/validation
+    },  
+    num_classes=19,
+    ignore_label=255,
+)
+
 _DATASETS_INFORMATION = {
     'cityscapes': _CITYSCAPES_INFORMATION,
     'pascal_voc_seg': _PASCAL_VOC_SEG_INFORMATION,
@@ -143,6 +152,7 @@ _DATASETS_INFORMATION = {
     'mapillary': _MAPILLARY_INFORMATION,
     'bdd+cityscapes': _BDD_CITYSCAPES_INFORMATION,
     'bdd+cityscapes+mapillary': _BDD_CITY_MAPIL_INFORMATION,
+    'scooter_halflabelled': _SCOOTER_HALFLABELLED_INFORMATION
 }
 
 # Default file pattern of TFRecord of TensorFlow Example.

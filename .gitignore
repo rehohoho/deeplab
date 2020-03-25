@@ -1,4 +1,5 @@
 datasets/bdd+cityscapes+mapillary/
+datasets/scooter_halflabelled/
 post/*.pyd
 post/*.so
 

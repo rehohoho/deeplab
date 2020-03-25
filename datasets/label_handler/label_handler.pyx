@@ -152,7 +152,7 @@ cdef class imgHandler:
                 np_im[h, w] = self.city_train_label[ np_im[h, w] ]
         
         im = Image.fromarray(np_im)
-        im.save(os.path.join( segPath, os.path.basename(imgPath) ) )
+        return(im)
     
     def label_mapillary(self, imgPath, segPath):
         
@@ -170,4 +170,4 @@ cdef class imgHandler:
         
         im = Image.fromarray(np_im)
         im = im.resize((2048,1024))
-        im.save(os.path.join( segPath, os.path.basename(imgPath) ) )
+        return(im)
