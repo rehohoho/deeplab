@@ -338,7 +338,7 @@ def boundary_optimisation(image, n_segments, seg_map):
 
 
 def folder_seg(folder_path, output_path, 
-                apply_crf, translate_labels, add_orig, vis, mark_main_road,
+                apply_crf, translate_labels, add_orig, vis, mark_main_road, output_logits,
                 crf_pos, crf_col, crf_smooth, mask_size):
     """ Segments all jpg from folderPath and outputs segmented image in outputpath
     
@@ -348,12 +348,15 @@ def folder_seg(folder_path, output_path,
         apply_crf           bool    whether to use crf
         translate_labels:   bool    whether to translate labels
         add_orig            bool    whether to attach original image
+        vis                 bool    whether to visualise n_classes
+        mark_main_road      bool    whether to find classes connecting to pavement at middle-bottom
+        output_logits       bool    whether to output logits only
     """
     
     folderPath = os.path.abspath(folder_path)
     outputPath = os.path.abspath(output_path)
 
-    if not os.path.exists(outputPath):                #creates directory if none found
+    if not os.path.exists(outputPath):
         os.mkdir(outputPath)
         print('output directory not found, created one %s' %outputPath)
     
@@ -367,10 +370,8 @@ def folder_seg(folder_path, output_path,
     else:
         resize_method = Image.NEAREST
 
-    # conventional segmentation, get confidence via probability spread, utilise previous frames, colorfulness metrics
-    road_marker = None
-    # for displaying transparency reflecting confidence, use post_utils to get confidence
-    # black = Image.new('RGBA', (width*2, height), (0, 0, 0, 255))
+    road_marker = None  # for conventional segmentation, get confidence via probability spread, utilise previous frames, colorfulness metrics
+    # black = Image.new('RGBA', (width*2, height), (0, 0, 0, 255))  # for displaying transparency reflecting confidence, use post_utils to get confidence
     
     for filename in filenames:
         
@@ -388,51 +389,59 @@ def folder_seg(folder_path, output_path,
             print(filedir)
             im = Image.open(filedir)
             
-            # CRF requires logits, retrieve layer before argmax
+            resized_im, logits = MODEL.getLogits(im)
+            
             if apply_crf:
-                resized_im, logits = MODEL.getLogits(im)
                 height, width, classes = np.shape(logits)
 
                 resized_im = np.array(resized_im)
                 logits = softmax_logits_forcrf(height, width, logits)
                 postcrf = generate_CRFmodel( resized_im, height, width, logits, 19, crf_pos, crf_col, crf_smooth)
 
-                inf = postcrf.inference(5)          #(classes, pixels)
-                seg_map = np.argmax(inf, axis = 0)  #(pixels)
-                seg_map = np.reshape( seg_map, (height,width) )
-
-            # retrieve argmaxed logits
-            else:
-                resized_im, seg_map = MODEL.run(im)
-
-            if mark_main_road:
-                if road_marker == None:      # handler only needs to initialised once
-                    road_marker = imgGraph( np.shape(resized_im)[0], np.shape(resized_im)[1], \
-                                            CITYSCAPES_COLMAP.astype(np.float32))
-                
-                road_marker.load_mask(seg_map.astype(np.uint8))
-                road_marker.mark_main_road(0.5)   #threshold to reject road, percentage of height
-                seg_map = road_marker.show_mask()
-
-            if translate_labels:
-                seg_map_len = len(seg_map)
-                for i in range(seg_map_len):    #change mask index
-                    seg_map[i] = [CITYSCAPES_TRANSDICT[j] for j in seg_map[i]]
+                logits = postcrf.inference(5)          #(classes, pixels)
             
-            if vis:
-                seg_image = CITYSCAPES_COLMAP[seg_map].astype(np.uint8)
-            else:
-                seg_image = seg_map.astype(np.uint8)
-
-            if add_orig:
-                seg_image = np.hstack( (resized_im, seg_image) )
-            new_im = Image.fromarray(seg_image)
-
-            if mask_size != new_im.size and not add_orig:
-                new_im = new_im.resize(mask_size, resize_method)
+            if output_logits:
                 
-            #Image.alpha_composite(black, new_im).save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
-            new_im.save( os.path.join(outputPath, basename) )
+                print(logits.shape)
+                
+            else:
+                if apply_crf:
+                    seg_map = np.argmax(logits, axis=0).reshape((height,width))
+                else:
+                    seg_map = np.argmax(logits, axis=2)
+
+                if mark_main_road:
+                    if road_marker == None:      # handler only needs to initialised once
+                        road_marker = imgGraph( np.shape(resized_im)[0], np.shape(resized_im)[1], \
+                                                CITYSCAPES_COLMAP.astype(np.float32))
+                    
+                    road_marker.load_mask(seg_map.astype(np.uint8))
+                    road_marker.mark_main_road(0.5)   #threshold to reject road, percentage of height
+                    seg_map = road_marker.show_mask()
+                    # change_mask = road_marker.show_mask()
+                    # change_mask[change_mask > 1] = 0
+                    # logits[:,:,[0,1]] = logits[:,:,[1,0]]
+                    # seg_map = np.argmax(logits, axis=2)
+
+                if translate_labels:
+                    seg_map_len = len(seg_map)
+                    for i in range(seg_map_len):    #change mask index
+                        seg_map[i] = [CITYSCAPES_TRANSDICT[j] for j in seg_map[i]]
+                
+                if vis:
+                    seg_image = CITYSCAPES_COLMAP[seg_map].astype(np.uint8)
+                else:
+                    seg_image = seg_map.astype(np.uint8)
+
+                if add_orig:
+                    seg_image = np.hstack( (resized_im, seg_image) )
+                new_im = Image.fromarray(seg_image)
+
+                if mask_size != new_im.size and not add_orig:
+                    new_im = new_im.resize(mask_size, resize_method)
+                    
+                #Image.alpha_composite(black, new_im).save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
+                new_im.save( os.path.join(outputPath, basename) )
 
 
 if __name__ == "__main__":
@@ -481,42 +490,48 @@ if __name__ == "__main__":
         '-p', '--use_crf',
         default=False,
         action='store_true',
-        help= "apply post processing"
+        help= "whether to apply post processing"
     )
     parser.add_argument(
         '-tl', '--translate_labels',
         default=False,
         action='store_true',
-        help= "apply post processing"
+        help= "whether to translate labels"
     )
     parser.add_argument(
         '-ao', '--add_orig',
         default=False,
         action='store_true',
-        help= "attach segmentation image with original"
+        help= "whether to attach segmentation image with original image"
     )
     parser.add_argument(
         '-v', '--vis_mask',
         default=False,
         action='store_true',
-        help= "add visualization to mask"
+        help= "whether to visualise to mask"
+    )
+    parser.add_argument(
+        '-l', '--output_logits',
+        default=False,
+        action='store_true',
+        help= "whether to output logits instead of image data"
+    )
+    parser.add_argument(
+        '-mm', '--mark_main_road',
+        default=False,
+        action='store_true',
+        help= "whether to mark the main road"
+    )
+    parser.add_argument(
+        '-is', '--mask_size',
+        default="513,513",
+        help= "change the output image size to this tuple size"
     )
     parser.add_argument(
         '-gpu', '--gpu_utilise',
         default=0,
         type=int,
         help= "use the gpu"
-    )
-    parser.add_argument(
-        '-mm', '--mark_main_road',
-        default=False,
-        action='store_true',
-        help= "mark the main road"
-    )
-    parser.add_argument(
-        '-is', '--mask_size',
-        default="513,513",
-        help= "change the image size to this tuple size"
     )
     args = parser.parse_args()
 
@@ -536,8 +551,8 @@ if __name__ == "__main__":
 
     print('input folder %s, output folder %s' %(args.image_folder, args.output_folder))
     folder_seg(args.image_folder, args.output_folder, 
-                args.use_crf, args.translate_labels, args.add_orig, args.vis_mask, args.mark_main_road,
-                args.crf_pos, args.crf_col, args.crf_smooth,parse_image_size(args.mask_size))
+                args.use_crf, args.translate_labels, args.add_orig, args.vis_mask, args.mark_main_road, args.output_logits,
+                args.crf_pos, args.crf_col, args.crf_smooth, parse_image_size(args.mask_size))
 
 
 
