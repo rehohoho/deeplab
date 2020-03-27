@@ -141,7 +141,7 @@ _SCOOTER_HALFLABELLED_INFORMATION = DatasetDescriptor(
         'val': 906,  # num of samples in images/validation
     },  
     num_classes=19,
-    ignore_label=255,
+    ignore_label=250,
 )
 
 _DATASETS_INFORMATION = {
