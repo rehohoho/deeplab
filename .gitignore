@@ -2,6 +2,8 @@ datasets/bdd+cityscapes+mapillary/
 datasets/scooter_halflabelled/
 post/*.pyd
 post/*.so
+datasets/label_handler/*.pyd
+datasets/label_handler/*.so
 
 *.pyc
 *.ipynb

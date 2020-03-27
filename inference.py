@@ -145,20 +145,21 @@ class DeepLabModel(object):
     """Class to load deeplab model and run inference."""
 
     INPUT_TENSOR_NAME = 'ImageTensor:0'
+    SOFTMAX_TENSOR_NAME = 'Softmax:0'
     OUTPUT_TENSOR_NAME = 'SemanticPredictions:0'
-    #SOFTMAX_TENSOR_NAME = 'ResizeBilinear_1:0'     #for cityscapes pretrained checkpoint
-    SOFTMAX_TENSOR_NAME = 'ResizeBilinear_2:0'      #for custom checkpoint
     INPUT_SIZE = 513
     FROZEN_GRAPH_NAME = 'frozen_inference_graph'
 
-    def __init__(self, tarball_path):
+    def __init__(self, tarball_path, mask_size):
         """Creates and loads pretrained deeplab model."""
         
         self.graph = tf.Graph()
+        self.mask_max_side = max(mask_size)
 
+        # Retrieve graph definition
         graph_def = None
         tar_file = tarfile.open(tarball_path)
-        for tar_info in tar_file.getmembers():  #find relevant graph and extract frozen graph into graph_def
+        for tar_info in tar_file.getmembers():
             if self.FROZEN_GRAPH_NAME in os.path.basename(tar_info.name):
                 file_handle = tar_file.extractfile(tar_info)
                 graph_def = tf.GraphDef.FromString(file_handle.read())
@@ -169,43 +170,31 @@ class DeepLabModel(object):
         if graph_def is None:
             raise RuntimeError('Cannot find inference graph in tar archive.')
 
-        with self.graph.as_default():           #load graph def into self.graph
+        # Setup up graph and session
+        with self.graph.as_default():
+            
             tf.import_graph_def(graph_def, name='')
+            
+            softmax = tf.get_default_graph().get_tensor_by_name(self.SOFTMAX_TENSOR_NAME)
+            self.logits = tf.squeeze(softmax)
+
+            max_side_size = max(mask_size)  # process resize within graph, preserves aspect ratio
+            self.logits = tf.image.resize(self.logits, size=[max_side_size, max_side_size])
         
-        session_config = tf.ConfigProto()       #avoid cudnn load problem
+        session_config = tf.ConfigProto()   # avoid cudnn load problem
         session_config.gpu_options.allow_growth = True
-        
         self.sess = tf.Session(graph=self.graph, config=session_config)
 
-    def resize_image(self, image):
-        """ Resize image such that longer size == self.INPUT_SIZE """
+    def resize_image(self, image, tar_max_size):
+        """ Resize image such that longer size is tar_max_size """
 
         width, height = image.size
-        resize_ratio = 1.0 * self.INPUT_SIZE / max(width, height)
+        resize_ratio = tar_max_size / max(width, height)
         target_size = (int(resize_ratio * width), int(resize_ratio * height))
-        resized_image = image.convert('RGB').resize(target_size, Image.ANTIALIAS)
+        resized_im = image.convert('RGB').resize(target_size, Image.ANTIALIAS)
 
-        return(resized_image)
+        return resized_im
 
-    def run(self, image):
-        """Runs inference on a single image.
-
-        Args:
-            image: A PIL.Image object, raw input image.
-
-        Returns:
-            resized_image: RGB image resized from original input image.
-            seg_map: Segmentation map of `resized_image`.
-        """
-        
-        resized_image = self.resize_image(image)
-        
-        batch_seg_map = self.sess.run(                    #run tf session to get mask
-                self.OUTPUT_TENSOR_NAME,
-                feed_dict={self.INPUT_TENSOR_NAME: [np.asarray(resized_image)]})
-        
-        return resized_image, batch_seg_map[0]
-    
     def getLogits(self, image):
         """Runs inference on a single image to get probabilities of each class
 
@@ -217,66 +206,21 @@ class DeepLabModel(object):
             logits: 2D array containing class probability of each pixel (pixelNo, classNo)
         """
         
-        resized_image = self.resize_image(image)
+        output_image = self.resize_image(image, self.mask_max_side)
+        model_input = self.resize_image(image, self.INPUT_SIZE)
 
-        logits = self.sess.run(                    #run tf session to get mask
-                self.SOFTMAX_TENSOR_NAME,
-                feed_dict={self.INPUT_TENSOR_NAME: [np.asarray(resized_image)]})
+        logits = self.sess.run(
+                self.logits, # logits have bilinear scale to size of output
+                feed_dict={self.INPUT_TENSOR_NAME: [np.asarray(model_input)]})
         
-        width, height = resized_image.size
-        logits = np.squeeze(logits)
+        # get relevant portion of logits
+        width, height = output_image.size
         logits = logits[:height, :width]
-        
-        return resized_image, logits
+
+        return output_image, logits
 
 
-def numericalSort(filenames):
-    """ sort filenames in directory by index, position, episode name
-    ensure temporal continuity for post methods that use previous frames
-
-    Args:
-        filenames       list    of paths to images to perform inference
-    
-    Returns:
-        new_filenames   list    sorted by index, then position (left, mid, right)
-    """
-
-    # check if filename has direction or is all digits
-    filename = filenames[0]
-    if not ('left' in filename or 'mid' in filename or 'right' in filename):
-        new_filenames = filenames
-        new_filenames.sort()
-        return( new_filenames )
-
-    new_filenames = []
-
-    for filename in filenames:
-        if filename.endswith('jpg') or filename.endswith('png'):
-            ind = re.findall(r'\d+', filename)  #index
-            pos = None                          #left, mid, right
-            if 'left' in filename:
-                pos = 'left'
-            if 'mid' in filename:
-                pos = 'mid'
-            if 'right' in filename:
-                pos = 'right'
-            episode_name = filename.split('/')[-2]
-            new_filenames.append([filename, int(ind[-1]), pos, episode_name])
-    
-    new_filenames.sort(key=lambda x:x[1])
-    new_filenames.sort(key=lambda x:x[2])
-    new_filenames.sort(key=lambda x:x[3])
-    new_filenames = [i[0] for i in new_filenames]
-
-    return(new_filenames)
-
-
-def parse_image_size(img_size_string):
-    img_size = img_size_string.split(",")
-    return (int(img_size[0]),int(img_size[1]))
-
-
-def generate_CRFmodel(img, height, width, smLogits, n_labels, crf_pos, crf_col, crf_smooth):
+def generate_CRFmodel(img, height, width, smLogits, n_labels, crf_config):
     """ generate DenseCRF2D class for inference, for given image and logits
 
     - increasing crf gamma variables reduces the effect of original image on inference
@@ -288,11 +232,9 @@ def generate_CRFmodel(img, height, width, smLogits, n_labels, crf_pos, crf_col, 
         smLogits    numpy.array (n_classes, ...) containing softmaxed logits
                     first dimension is the class, others are flattened
         n_labels    number of classes
-        crf_pos     default 80  (higher better)
-        crf_col     default 26 (lower better)
-        crf_smooth  default 3
+        crf_config  default '80,26,3'
     """
-
+    crf_pos, crf_col, crf_smooth = [int(i) for i in crf_config.split(',')]
     d = dcrf.DenseCRF2D(width, height, n_labels)
 
     U = unary_from_softmax(smLogits)
@@ -337,33 +279,37 @@ def boundary_optimisation(image, n_segments, seg_map):
     return(im_adhereBoundary)
 
 
+def generate_directory_path(path):
+
+    if os.path.exists(path):
+        return
+    
+    generate_directory_path( os.path.dirname(path) )
+    os.mkdir(path)
+    print('created directory at %s' %path)
+
+
 def folder_seg(folder_path, output_path, 
                 apply_crf, translate_labels, add_orig, vis, mark_main_road, output_logits,
-                crf_pos, crf_col, crf_smooth, mask_size):
+                crf_config):
     """ Segments all jpg from folderPath and outputs segmented image in outputpath
     
     Args:
         folder_path:        path    folder with images to segment
         output_path:        path    folder to output segmented images
-        apply_crf           bool    whether to use crf
-        translate_labels:   bool    whether to translate labels
-        add_orig            bool    whether to attach original image
-        vis                 bool    whether to visualise n_classes
-        mark_main_road      bool    whether to find classes connecting to pavement at middle-bottom
-        output_logits       bool    whether to output logits only
+        apply_crf           bool    flag to use crf
+        translate_labels:   bool    flag to translate labels
+        add_orig            bool    flag to attach original image
+        vis                 bool    flag to visualise n_classes
+        mark_main_road      bool    flag to find classes connecting to pavement at middle-bottom
+        output_logits       bool    flag to output logits only
     """
     
     folderPath = os.path.abspath(folder_path)
-    outputPath = os.path.abspath(output_path)
-
-    if not os.path.exists(outputPath):
-        os.mkdir(outputPath)
-        print('output directory not found, created one %s' %outputPath)
     
     filenames = [file for file in 
         glob.glob( os.path.join(folder_path, '**/*.png'), recursive=True )
     ]
-    filenames = numericalSort(filenames)
     
     if vis:
         resize_method = Image.ANTIALIAS
@@ -375,53 +321,45 @@ def folder_seg(folder_path, output_path,
     
     for filename in filenames:
         
-        basename = os.path.join( filename.split('/')[-2], os.path.basename(filename) )
-        
-        # create directory for episode if doesn't exist
-        dirname = os.path.join( output_path, filename.split('/')[-2] )
-        if not os.path.exists(dirname):
-            print('Creating directory at %s' %dirname)
-            os.mkdir(dirname)
+        save_path = filename.replace(folder_path, output_path)
+        if output_logits:
+            save_path = '%s.npy' %os.path.splitext(save_path)[0]
+        generate_directory_path(os.path.dirname(save_path))
 
-        if not os.path.exists( os.path.join(outputPath, basename) ):
+        if not os.path.exists(save_path):
             
             filedir = os.path.join(folderPath, filename)
-            print(filedir)
+            print('%s -> %s' %(filedir, save_path))
             im = Image.open(filedir)
             
             resized_im, logits = MODEL.getLogits(im)
-            
+
             if apply_crf:
                 height, width, classes = np.shape(logits)
-
                 resized_im = np.array(resized_im)
                 logits = softmax_logits_forcrf(height, width, logits)
-                postcrf = generate_CRFmodel( resized_im, height, width, logits, 19, crf_pos, crf_col, crf_smooth)
+                postcrf = generate_CRFmodel( resized_im, height, width, logits, 19, crf_config)
 
                 logits = postcrf.inference(5)          #(classes, pixels)
             
             if output_logits:
-                
-                print(logits.shape)
-                
+                logits = np.array(logits, dtype = np.float16).reshape((19, height, width))
+                np.save(save_path, logits)
+
             else:
                 if apply_crf:
-                    seg_map = np.argmax(logits, axis=0).reshape((height,width))
+                    seg_map = np.argmax(logits, axis=0).reshape((height,width)).astype(np.uint8)
                 else:
-                    seg_map = np.argmax(logits, axis=2)
+                    seg_map = np.argmax(logits, axis=2).astype(np.uint8)
 
                 if mark_main_road:
                     if road_marker == None:      # handler only needs to initialised once
                         road_marker = imgGraph( np.shape(resized_im)[0], np.shape(resized_im)[1], \
                                                 CITYSCAPES_COLMAP.astype(np.float32))
                     
-                    road_marker.load_mask(seg_map.astype(np.uint8))
+                    road_marker.load_mask(seg_map)
                     road_marker.mark_main_road(0.5)   #threshold to reject road, percentage of height
                     seg_map = road_marker.show_mask()
-                    # change_mask = road_marker.show_mask()
-                    # change_mask[change_mask > 1] = 0
-                    # logits[:,:,[0,1]] = logits[:,:,[1,0]]
-                    # seg_map = np.argmax(logits, axis=2)
 
                 if translate_labels:
                     seg_map_len = len(seg_map)
@@ -429,136 +367,133 @@ def folder_seg(folder_path, output_path,
                         seg_map[i] = [CITYSCAPES_TRANSDICT[j] for j in seg_map[i]]
                 
                 if vis:
-                    seg_image = CITYSCAPES_COLMAP[seg_map].astype(np.uint8)
-                else:
-                    seg_image = seg_map.astype(np.uint8)
-
+                    seg_map = CITYSCAPES_COLMAP[seg_map].astype(np.uint8)
+                
                 if add_orig:
-                    seg_image = np.hstack( (resized_im, seg_image) )
-                new_im = Image.fromarray(seg_image)
+                    seg_map = np.hstack( (resized_im, seg_map) )
+                new_im = Image.fromarray(seg_map)
 
-                if mask_size != new_im.size and not add_orig:
-                    new_im = new_im.resize(mask_size, resize_method)
-                    
                 #Image.alpha_composite(black, new_im).save( os.path.join(outputPath, '%s.png' %filename[:-4]) )
-                new_im.save( os.path.join(outputPath, basename) )
+                new_im.save(save_path)
 
 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
 
+    # Model and data paramters
     parser.add_argument(
-        '-i', '--image_folder',
+        '--image_folder',
         required=True,
         help= "path to folder with images"
     )
     parser.add_argument(
-        '-o', '--output_folder',
+        '--output_folder',
         required=True,
         help= "path to folder for segmented images"
     ) 
     parser.add_argument(
-        '-md', '--model_directory',
+        '--model_directory',
         required=True,
         help= "path to the directory with tar.gz model checkpoint"
     )
     parser.add_argument(
-        '-cp', '--crf_pos',
-        default=80,
-        type=int,
-        help= "position threshold for appearance kernel in crf pairwise potential"
+        '--mask_size',
+        default="513,513",
+        help= "width, height of image size (eg. 513,513)"
     )
     parser.add_argument(
-        '-cc', '--crf_col',
-        default=26,
-        type=int,
-        help= "color threshold for appearance kernel in crf pairwise potential"
+        '--output_logits',
+        default=False,
+        action='store_true',
+        help= "flag to output logits instead of image data"
+    )
+    # Post-processing arguments
+    parser.add_argument(
+        '--crf_config',
+        default='80,26,3',
+        help= "crf pairwise potential kernal config (position, color for appearance, position for smoothing)"
     )
     parser.add_argument(
-        '-cs', '--crf_smooth',
-        default=3,
-        type=int,
-        help= "position threshold for smoothing kernel in crf pairwise potential"
+        '--use_crf',
+        default=False,
+        action='store_true',
+        help= "flag to apply crf"
     )
     parser.add_argument(
-        '-t', '--print_tensor',
+        '--mark_main_road',
+        default=False,
+        action='store_true',
+        help= "flag to mark the main road"
+    )
+    # Visualisation flags
+    parser.add_argument(
+        '--vis_mask',
+        default=False,
+        action='store_true',
+        help= "flag to turn mask into visualisation"
+    )
+    parser.add_argument(
+        '--add_orig',
+        default=False,
+        action='store_true',
+        help= "flag to attach segmentation image with original image"
+    )
+    parser.add_argument(
+        '--translate_labels',
+        default=False,
+        action='store_true',
+        help= "flag to translate labels (e.g. sky to building)"
+    )
+    # Others
+    parser.add_argument(
+        '--print_tensor_path',
         default='',
         help= "path to textfile with tensors"
     )
     parser.add_argument(
-        '-p', '--use_crf',
+        '--use_cpu',
         default=False,
         action='store_true',
-        help= "whether to apply post processing"
-    )
-    parser.add_argument(
-        '-tl', '--translate_labels',
-        default=False,
-        action='store_true',
-        help= "whether to translate labels"
-    )
-    parser.add_argument(
-        '-ao', '--add_orig',
-        default=False,
-        action='store_true',
-        help= "whether to attach segmentation image with original image"
-    )
-    parser.add_argument(
-        '-v', '--vis_mask',
-        default=False,
-        action='store_true',
-        help= "whether to visualise to mask"
-    )
-    parser.add_argument(
-        '-l', '--output_logits',
-        default=False,
-        action='store_true',
-        help= "whether to output logits instead of image data"
-    )
-    parser.add_argument(
-        '-mm', '--mark_main_road',
-        default=False,
-        action='store_true',
-        help= "whether to mark the main road"
-    )
-    parser.add_argument(
-        '-is', '--mask_size',
-        default="513,513",
-        help= "change the output image size to this tuple size"
-    )
-    parser.add_argument(
-        '-gpu', '--gpu_utilise',
-        default=0,
-        type=int,
-        help= "use the gpu"
+        help= "use CPU only"
     )
     args = parser.parse_args()
 
-    if args.gpu_utilise == -1:
+    if args.use_cpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1" #disables GPU
     
     if not os.path.exists(args.model_directory):
-        print('model directory not found. check is a tar.gz with frozen_inferene_graph.pb' %args.model_directory)
+        print('model directory not found. check is a %s tar.gz with frozen_inferene_graph.pb' %args.model_directory)
         exit
-
-    print('model checkpoint found at %s, loading model...' %args.model_directory)
-    MODEL = DeepLabModel(args.model_directory)
     
-    if args.print_tensor != '':
-        write_tensors_to_txt(args.model_directory, args.print_tensor)
+    print('model checkpoint found at %s, loading model...' %args.model_directory)
+    args.mask_size = args.mask_size.split(',')
+    args.mask_size = [int(i) for i in args.mask_size]
+    MODEL = DeepLabModel(args.model_directory, args.mask_size)
+    
+    if args.print_tensor_path != '':
+        write_tensors_to_txt(args.model_directory, args.print_tensor_path)
         exit
 
     print('input folder %s, output folder %s' %(args.image_folder, args.output_folder))
     folder_seg(args.image_folder, args.output_folder, 
                 args.use_crf, args.translate_labels, args.add_orig, args.vis_mask, args.mark_main_road, args.output_logits,
-                args.crf_pos, args.crf_col, args.crf_smooth, parse_image_size(args.mask_size))
+                args.crf_config)
 
 
 
 
 
 
+
+"""
+NPY TO VIS
+filename = 'D:/perception_datasets/scooter_halflabelled/scooter_images/smthelse/train/frame_444_mid.npy'
+logits = np.load(filename)
+seg_map = np.argmax(logits, axis=0).astype(np.uint8)
+seg_map = CITYSCAPES_COLMAP[seg_map]
+Image.fromarray(seg_map).save(filename.replace('npy', 'png'))
+"""
 
 """
 QUICK AND DIRTY TESTING
