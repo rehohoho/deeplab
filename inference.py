@@ -12,7 +12,7 @@ import re
 import glob
 
 import tensorflow as tf
-from post.post_utils import softmax_logits_forcrf, adhere_boundary
+from post.post_utils import adhere_boundary
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_softmax
 
@@ -145,12 +145,11 @@ class DeepLabModel(object):
     """Class to load deeplab model and run inference."""
 
     INPUT_TENSOR_NAME = 'ImageTensor:0'
-    SOFTMAX_TENSOR_NAME = 'Softmax:0'
-    OUTPUT_TENSOR_NAME = 'SemanticPredictions:0'
+    LOGITS_TENSOR_NAME = 'ResizeBilinear_2:0'
     INPUT_SIZE = 513
     FROZEN_GRAPH_NAME = 'frozen_inference_graph'
 
-    def __init__(self, tarball_path, mask_size):
+    def __init__(self, tarball_path, mask_size, softmax_temp = 1):
         """Creates and loads pretrained deeplab model."""
         
         self.graph = tf.Graph()
@@ -174,13 +173,12 @@ class DeepLabModel(object):
         with self.graph.as_default():
             
             tf.import_graph_def(graph_def, name='')
-            
-            softmax = tf.get_default_graph().get_tensor_by_name(self.SOFTMAX_TENSOR_NAME)
-            self.logits = tf.squeeze(softmax)
-
             max_side_size = max(mask_size)  # process resize within graph, preserves aspect ratio
-            self.logits = tf.image.resize(self.logits, size=[max_side_size, max_side_size])
-        
+
+            logits = tf.get_default_graph().get_tensor_by_name(self.LOGITS_TENSOR_NAME)
+            softmax = tf.nn.softmax(tf.div(logits, softmax_temp))
+            self.softmax = tf.image.resize(tf.squeeze(softmax), size=[max_side_size, max_side_size])
+            
         session_config = tf.ConfigProto()   # avoid cudnn load problem
         session_config.gpu_options.allow_growth = True
         self.sess = tf.Session(graph=self.graph, config=session_config)
@@ -195,7 +193,7 @@ class DeepLabModel(object):
 
         return resized_im
 
-    def getLogits(self, image):
+    def get_softmax_layer(self, image):
         """Runs inference on a single image to get probabilities of each class
 
         Args:
@@ -203,21 +201,22 @@ class DeepLabModel(object):
 
         Returns:
             resized_image: RGB image resized from original input image. (input_size, input_size, 3)
-            logits: 2D array containing class probability of each pixel (pixelNo, classNo)
+            result: 2D array containing class probability of each pixel (pixelNo, classNo)
         """
         
         output_image = self.resize_image(image, self.mask_max_side)
         model_input = self.resize_image(image, self.INPUT_SIZE)
 
-        logits = self.sess.run(
-                self.logits, # logits have bilinear scale to size of output
+        result = self.sess.run(
+                self.softmax, # softmax layer have bilinear scale to size of output, see __init__
                 feed_dict={self.INPUT_TENSOR_NAME: [np.asarray(model_input)]})
         
         # get relevant portion of logits
         width, height = output_image.size
-        logits = logits[:height, :width]
+        result = result[:height, :width]
+        result = result.transpose(2, 0, 1)
 
-        return output_image, logits
+        return output_image, result
 
 
 def generate_CRFmodel(img, height, width, smLogits, n_labels, crf_config):
@@ -332,25 +331,19 @@ def folder_seg(folder_path, output_path,
             print('%s -> %s' %(filedir, save_path))
             im = Image.open(filedir)
             
-            resized_im, logits = MODEL.getLogits(im)
+            resized_im, softmax_layer = MODEL.get_softmax_layer(im)
+            classes, height, width = np.shape(softmax_layer)
 
             if apply_crf:
-                height, width, classes = np.shape(logits)
-                resized_im = np.array(resized_im)
-                logits = softmax_logits_forcrf(height, width, logits)
-                postcrf = generate_CRFmodel( resized_im, height, width, logits, 19, crf_config)
-
-                logits = postcrf.inference(5)          #(classes, pixels)
+                postcrf = generate_CRFmodel(np.array(resized_im), height, width, softmax_layer.copy(order='C'), 19, crf_config)
+                softmax_layer = postcrf.inference(5)          #(classes, pixels)
             
             if output_logits:
-                logits = np.array(logits, dtype = np.float16).reshape((19, height, width))
-                np.save(save_path, logits)
+                softmax_layer = np.array(softmax_layer, dtype = np.float16).reshape((19, height, width))
+                np.save(save_path, softmax_layer)
 
             else:
-                if apply_crf:
-                    seg_map = np.argmax(logits, axis=0).reshape((height,width)).astype(np.uint8)
-                else:
-                    seg_map = np.argmax(logits, axis=2).astype(np.uint8)
+                seg_map = np.argmax(softmax_layer, axis=0).reshape((height,width)).astype(np.uint8)
 
                 if mark_main_road:
                     if road_marker == None:      # handler only needs to initialised once
@@ -407,6 +400,12 @@ if __name__ == "__main__":
         default=False,
         action='store_true',
         help= "flag to output logits instead of image data"
+    )
+    parser.add_argument(
+        '--softmax_temp',
+        default=1,
+        type=float,
+        help= "temperature of softmax function"
     )
     # Post-processing arguments
     parser.add_argument(
@@ -469,14 +468,13 @@ if __name__ == "__main__":
     print('model checkpoint found at %s, loading model...' %args.model_directory)
     args.mask_size = args.mask_size.split(',')
     args.mask_size = [int(i) for i in args.mask_size]
-    MODEL = DeepLabModel(args.model_directory, args.mask_size)
+    MODEL = DeepLabModel(args.model_directory, args.mask_size, args.softmax_temp)
     
     if args.print_tensor_path != '':
         write_tensors_to_txt(args.model_directory, args.print_tensor_path)
-        exit
-
-    print('input folder %s, output folder %s' %(args.image_folder, args.output_folder))
-    folder_seg(args.image_folder, args.output_folder, 
+    else:
+        print('input folder %s, output folder %s' %(args.image_folder, args.output_folder))
+        folder_seg(args.image_folder, args.output_folder, 
                 args.use_crf, args.translate_labels, args.add_orig, args.vis_mask, args.mark_main_road, args.output_logits,
                 args.crf_config)
 

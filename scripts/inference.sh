@@ -1,5 +1,5 @@
 
-export PYTHONPATH=$PYTHONPATH:/home/whizz/Desktop/deeplabv3/deeplab
+export PYTHONPATH=$PYTHONPATH:C:/Users/User/Desktop/deeplab
 
 DATASET_FOLDER="D:/perception_datasets/scooter_halflabelled/"
 
@@ -7,6 +7,7 @@ python ../inference.py \
     --image_folder="${DATASET_FOLDER}/scooter_images" \
     --output_folder="${DATASET_FOLDER}/scooter_softmax" \
     --model_directory="C:/Users/User/Downloads/deploy_models/deeplab_adam_150k.tar.gz" \
+    --softmax_temp=10.0 \
     --output_logits \
     --mask_size='1280,960' \
     --crf_config='80,26,3' \
@@ -18,6 +19,7 @@ python ../inference.py \
     # --output_folder       # path to folder for segmented images
     # --model_directory     # path to the directory with tar.gz model checkpoint"
     # --mask_size           # width, height of image size (default = 513,513)
+    # --softmax_temp        # temperature of softmax
     # --output_logits       # flag to output logits instead of image data
 
 # POST-PROCESSING
