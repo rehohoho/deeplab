@@ -12,7 +12,7 @@ import re
 import glob
 
 import tensorflow as tf
-from post.post_utils import adhere_boundary
+from post.post_utils import adhere_boundary, softmax_logits_forcrf
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_softmax
 
@@ -149,7 +149,7 @@ class DeepLabModel(object):
     INPUT_SIZE = 513
     FROZEN_GRAPH_NAME = 'frozen_inference_graph'
 
-    def __init__(self, tarball_path, mask_size, softmax_temp = 1):
+    def __init__(self, tarball_path, mask_size):
         """Creates and loads pretrained deeplab model."""
         
         self.graph = tf.Graph()
@@ -176,8 +176,7 @@ class DeepLabModel(object):
             max_side_size = max(mask_size)  # process resize within graph, preserves aspect ratio
 
             logits = tf.get_default_graph().get_tensor_by_name(self.LOGITS_TENSOR_NAME)
-            softmax = tf.nn.softmax(tf.div(logits, softmax_temp))
-            self.softmax = tf.image.resize(tf.squeeze(softmax), size=[max_side_size, max_side_size])
+            self.logits = tf.image.resize(tf.squeeze(logits), size=[max_side_size, max_side_size])
             
         session_config = tf.ConfigProto()   # avoid cudnn load problem
         session_config.gpu_options.allow_growth = True
@@ -193,7 +192,7 @@ class DeepLabModel(object):
 
         return resized_im
 
-    def get_softmax_layer(self, image):
+    def get_logits_layer(self, image):
         """Runs inference on a single image to get probabilities of each class
 
         Args:
@@ -208,7 +207,7 @@ class DeepLabModel(object):
         model_input = self.resize_image(image, self.INPUT_SIZE)
 
         result = self.sess.run(
-                self.softmax, # softmax layer have bilinear scale to size of output, see __init__
+                self.logits, # logits layer have bilinear scale to size of output, see __init__
                 feed_dict={self.INPUT_TENSOR_NAME: [np.asarray(model_input)]})
         
         # get relevant portion of logits
@@ -331,19 +330,20 @@ def folder_seg(folder_path, output_path,
             print('%s -> %s' %(filedir, save_path))
             im = Image.open(filedir)
             
-            resized_im, softmax_layer = MODEL.get_softmax_layer(im)
-            classes, height, width = np.shape(softmax_layer)
+            resized_im, logits_layer = MODEL.get_logits_layer(im)
+            classes, height, width = np.shape(logits_layer)
 
             if apply_crf:
+                softmax_layer = softmax_logits_forcrf(height, width, logits_layer.transpose(1,2,0))
                 postcrf = generate_CRFmodel(np.array(resized_im), height, width, softmax_layer.copy(order='C'), 19, crf_config)
-                softmax_layer = postcrf.inference(5)          #(classes, pixels)
+                logits_layer = postcrf.inference(5)          #(classes, pixels)
             
             if output_logits:
-                softmax_layer = np.array(softmax_layer, dtype = np.float16).reshape((19, height, width))
-                np.save(save_path, softmax_layer)
+                logits_layer = np.array(logits_layer, dtype = np.float16).reshape((19, height, width))
+                np.save(save_path, logits_layer)
 
             else:
-                seg_map = np.argmax(softmax_layer, axis=0).reshape((height,width)).astype(np.uint8)
+                seg_map = np.argmax(logits_layer, axis=0).reshape((height,width)).astype(np.uint8)
 
                 if mark_main_road:
                     if road_marker == None:      # handler only needs to initialised once
@@ -400,12 +400,6 @@ if __name__ == "__main__":
         default=False,
         action='store_true',
         help= "flag to output logits instead of image data"
-    )
-    parser.add_argument(
-        '--softmax_temp',
-        default=1,
-        type=float,
-        help= "temperature of softmax function"
     )
     # Post-processing arguments
     parser.add_argument(
@@ -468,7 +462,7 @@ if __name__ == "__main__":
     print('model checkpoint found at %s, loading model...' %args.model_directory)
     args.mask_size = args.mask_size.split(',')
     args.mask_size = [int(i) for i in args.mask_size]
-    MODEL = DeepLabModel(args.model_directory, args.mask_size, args.softmax_temp)
+    MODEL = DeepLabModel(args.model_directory, args.mask_size)
     
     if args.print_tensor_path != '':
         write_tensors_to_txt(args.model_directory, args.print_tensor_path)

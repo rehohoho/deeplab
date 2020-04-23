@@ -1,25 +1,24 @@
 
-export PYTHONPATH=$PYTHONPATH:C:/Users/User/Desktop/deeplab
+export PYTHONPATH=$PYTHONPATH';D:/Documents'
 
-DATASET_FOLDER="D:/perception_datasets/scooter_halflabelled/"
+DATASET_FOLDER="D:/data/scooter_halflabelled/"
 
 python ../inference.py \
     --image_folder="${DATASET_FOLDER}/scooter_images" \
-    --output_folder="${DATASET_FOLDER}/scooter_softmax" \
-    --model_directory="C:/Users/User/Downloads/deploy_models/deeplab_adam_150k.tar.gz" \
-    --softmax_temp=10.0 \
-    --output_logits \
+    --output_folder="${DATASET_FOLDER}/scooter_logits" \
+    --model_directory="D:/models/deeplab_scooter_128k.tar.gz" \
     --mask_size='1280,960' \
-    --crf_config='80,26,3' \
-    --use_crf
+    --output_logits
 
+
+# IMPORTANT WARNING
+    # when using crf, the output logits will be the edited softmax layer, NOT logits layer
 
 # MAIN ARGUMENTS
     # --image_folder        # path to folder with images
     # --output_folder       # path to folder for segmented images
     # --model_directory     # path to the directory with tar.gz model checkpoint"
     # --mask_size           # width, height of image size (default = 513,513)
-    # --softmax_temp        # temperature of softmax
     # --output_logits       # flag to output logits instead of image data
 
 # POST-PROCESSING
