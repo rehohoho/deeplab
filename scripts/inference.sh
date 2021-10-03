@@ -1,14 +1,13 @@
 
-export PYTHONPATH=$PYTHONPATH';D:/Documents'
+export PYTHONPATH=$PYTHONPATH';D:/repos/deeplab/scripts'
 
-DATASET_FOLDER="D:/data/scooter_halflabelled/"
+DATASET_FOLDER="D:/data/080420"
 
 python ../inference.py \
-    --image_folder="${DATASET_FOLDER}/scooter_images" \
-    --output_folder="${DATASET_FOLDER}/scooter_logits" \
+    --image_folder="${DATASET_FOLDER}/coco_images" \
+    --output_folder="${DATASET_FOLDER}/coco_deeplab_masks" \
     --model_directory="D:/models/deeplab_scooter_128k.tar.gz" \
-    --mask_size='1280,960' \
-    --output_logits
+    --mask_size='1280,720'
 
 
 # IMPORTANT WARNING
