@@ -9,6 +9,20 @@ from label_handler.label_handler import *
 from datetime import datetime
 
 
+def save_image(im, path):
+    parent_dir = os.path.dirname(path)
+    if not os.path.exists(parent_dir):
+        os.makedirs(parent_dir)
+    im.save(path)
+
+
+def copy_file(path, target):
+    parent_dir = os.path.dirname(target)
+    if not os.path.exists(parent_dir):
+        os.makedirs(parent_dir)
+    copy(path, target)
+
+
 def create_directories(newdataset_path, imagefolder_path, segfolder_path):
     """ create lists of directories to process images """
 
@@ -93,14 +107,14 @@ def create_trainvaltest(dataset_source,
                             baseName = '%s_%s.%s' %( path.split('/')[-1], os.path.splitext( os.path.basename(f) )[0], requiredType)
                         else:
                             baseName = '%s.%s' %( os.path.splitext( os.path.basename(f) )[0], requiredType)
-                        im.save( os.path.join( currPath, baseName ) )
+                        save_image(im, os.path.join(currPath, baseName))
                     elif mapillary:
                         im = Image.open(f)
                         im = im.resize((2048,1024), Image.ANTIALIAS)
                         baseName = '%s.%s' %( os.path.splitext( os.path.basename(f) )[0], requiredType)
-                        im.save(os.path.join( currPath, baseName ) )
+                        save_image(os.path.join(currPath, baseName))
                     else:
-                        copy(f,currPath)
+                        copy_file(f, currPath)
                     
                     if currSegPath != None:
                         
@@ -110,15 +124,15 @@ def create_trainvaltest(dataset_source,
                         
                         if cityscapes:
                             im = label_converter.label_cityscapes(s, segPath)
-                            im.save(os.path.join( segPath, os.path.basename(s) ) )
+                            save_image(im, os.path.join(segPath, os.path.basename(s)))
                         elif mapillary:
                             im = label_converter.label_mapillary(s, segPath)
-                            im.save(os.path.join( segPath, os.path.basename(s) ) )
+                            save_image(im, os.path.join(segPath, os.path.basename(s)))
                         elif scooter:
                             savePath = os.path.join(segPath, '%s_%s' %(path.split('/')[-1], os.path.basename(s)))
-                            copy(s,savePath)
+                            copy_file(s, savePath)
                         else:
-                            copy(s,segPath)
+                            copy_file(s, segPath)
 
                         newname = savePath.replace( seg_name_format, image_name_format[:-4]+'_label.png' )
                         os.rename( savePath, newname )
@@ -192,6 +206,7 @@ def create_imagesfolder(dataset_path, datasetName):
     for path in paths:
         filenames = os.listdir( path )
         for filename in filenames:
+            if os.path.isdir(filename): continue
             newPath = os.path.join( imgPath, filename )
             os.rename( os.path.join(path,filename), newPath )
 

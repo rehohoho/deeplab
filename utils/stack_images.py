@@ -4,12 +4,12 @@ Quick and dirty hardcoded stacking script
 2) Output images into a folder
 
 Current requirements:
-    - folders are not nested
     - image names are the same throughout
 '''
 
 import os
 import numpy as np
+import glob
 import re
 import json
 from PIL import Image, ImageFont, ImageDraw
@@ -69,11 +69,14 @@ def stack_folders_of_images(path_arr, output_folder, font, get_right_side=False)
     font = ImageFont.truetype(font, 36, encoding="unic")
 
     ref_folder = path_arr[0][0]
-    filenames = os.listdir(ref_folder)
+    filenames = [
+        f for f in glob.glob(
+            os.path.join(ref_folder, "**/*"),
+            recursive=True
+        ) if os.path.isfile(f)]
     filenames = numericalSort(filenames)
 
-    ref_image_path = os.path.join(ref_folder, filenames[0] )
-    width, height = Image.open(ref_image_path).size
+    width, height = Image.open(filenames[0]).size
     
     if not os.path.exists(output_folder):
         os.mkdir(output_folder)
@@ -90,7 +93,7 @@ def stack_folders_of_images(path_arr, output_folder, font, get_right_side=False)
 
             for folder_path in folder_row:
                 
-                img_path = os.path.join( folder_path, filename )
+                img_path = filename.replace(ref_folder, folder_path)
                 img = Image.open(img_path)
 
                 if get_right_side:
@@ -107,7 +110,7 @@ def stack_folders_of_images(path_arr, output_folder, font, get_right_side=False)
             newim.append(imrow)
         
         newim = np.vstack(newim)
-        save_path = os.path.join(output_folder, filename)
+        save_path = filename.replace(ref_folder, output_folder)
         newim = Image.fromarray(newim)
         
         if get_right_side:
@@ -116,6 +119,10 @@ def stack_folders_of_images(path_arr, output_folder, font, get_right_side=False)
             single_img_width = width
 
         draw_text_on_combined_image(newim, path_arr, font, height, single_img_width)
+
+        save_dir = os.path.dirname(save_path)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
         newim.save(save_path)
 
 
